@@ -195,6 +195,8 @@ dsh plugin add ./deepseek-brain
     backupCount: 7            # 保留的备份版本数
     idleConsolidationHours: 12  # 空闲多久后允许自动巩固（0 关闭）
     minConsolidationAgeHours: 6 # 巩固时忽略的新记忆年龄
+    autoDecayMinutes: 30      # 自主遗忘扫描间隔（分钟），0 关闭
+    activityLimit: 240        # 活动流环形缓冲长度
     vector:
       enabled: false          # 语义召回开关
       provider: hash          # hash（零依赖余弦）或 lancedb
@@ -213,6 +215,8 @@ dsh plugin add ./deepseek-brain
 | `backupCount` | `7` | 1–50 | 备份轮转保留数 |
 | `idleConsolidationHours` | `12` | 0–240 | 夜间/空闲自动巩固间隔 |
 | `minConsolidationAgeHours` | `6` | 0–720 | 巩固时跳过的年轻记忆 |
+| `autoDecayMinutes` | `30` | 0–1440 | 自主遗忘扫描间隔：到点自动 `decayPass()`，弱记忆进 `archive.json`；`0` 关闭 |
+| `activityLimit` | `240` | 20–2000 | 活动流保留条数（3D / 仪表盘的事件源） |
 | `vector.enabled` | `false` | — | 开启后 recall 额外加向量相似度 0.3 |
 | `vector.provider` | `hash` | `hash`/`lancedb` | `lancedb` 需自行 `npm i @lancedb/lancedb`；该分支只把数据库打开成扩展点，打分仍是内置余弦，模块缺失时自动降级并写入 `warnings` |
 | `demoSeed` | `false` | — | 空库时灌入 20 条演示记忆 |
@@ -253,36 +257,39 @@ node tools/serve.mjs --demo        # → http://127.0.0.1:7801/deepseek-brain/
 
 ASCII 脑图（见第 3 节）+ 健康面板：总记忆数、本周新增、遗忘压缩数、巩固次数、平均重要度、活跃主题、分层条数、最近巩固时间。框线按 CJK 双宽对齐，终端里不会撕裂。
 
-### 6.2 Web 仪表盘
+### 6.2 记忆观测仪（仪表盘）
 
-`brain_dashboard` → 返回 `…/deepseek-brain/dashboard.html`。四个视图（hash 路由，键盘 `1–4`）：
+`brain_dashboard` → 返回 `…/deepseek-brain/dashboard.html`。它不是「数据看板」，是一台**观测仪**：骨白与墨色、宋体标题、等宽数字、压印按钮，没有任何圆角渐变卡片。四页（hash 路由，键盘 `1–4`）：
 
-- **概览**：5 张 KPI、层堆叠条、强度直方图、一键睡眠巩固。
-- **时间线**：窗口化虚拟列表，按天分组，支持层/重要度/关键词/日期筛选与行内两步删除。
-- **知识图谱**：自写力导向 Canvas，修正过的三元组画虚线并带 `[已修正]` 与上一版 tooltip。
-- **衰减热力图**：5 层 × 30 天密度矩阵 + 按当前 λ 绘制的 60 天衰减曲线与遗忘阈值穿越天数。
+- **概览 VITALS**：脑区度数表（五层的条数/占比/平均强度）+ 14 天生命体征示波器（新增/遗忘/巩固/巩固次数四条迹线）+ 读数板（λ、半衰期、遗忘阈值、Pinned 条数、数据目录、备份数、向量索引、当前会话）+ 检索台（真正 `POST /api/recall`，把分数四分量列出来）。
+- **编年史 CHRONICLE**：等宽表格虚拟滚动，每条给出「强度预报」——`还剩 31.2 日 · 强度 0.50` 或 `免疫 · Imp 5`，直接读服务端 `forgetInDays`，不在前端重算公式。
+- **纤维追踪 TRACTOGRAPHY**：力导向的语义纤维束，主体/客体分级着色，`[已修正]` 用虚线束；右侧实体档案按度数排序，点实体列出它的全部事实。
+- **衰减实验 DECAY LAB**：左侧时间转盘（±30 天）真的会 `GET /api/state?at=`，右侧强度曲线族按当前 λ 画出每条记忆的衰减轨迹与阈值穿越点，右下是遗忘预报清单（按 `forgetInDays` 升序）。
+
+底部是控制台与**活动记录**：每一次 `observe / recall / remember / correct / forget / consolidate / decay` 都带 `seq` 落在这里，一行一条（例如 `#001 22:39:22 检索「张伟 会议 排期」· 3 命中 · 3ms`）。
 
 API 挂在 `/deepseek-brain/api/*`，契约见 [`docs/API.md`](docs/API.md)：
 
 ```
-GET  /api/state        GET /api/health      GET /api/export.json   GET /api/snapshot.md
-POST /api/remember     POST /api/forget     POST /api/sleep        POST /api/decay
-POST /api/working/push
+GET  /api/state?at=   GET /api/activity?since=   GET /api/health
+GET  /api/export.json GET /api/snapshot.md
+POST /api/remember    POST /api/forget   POST /api/sleep   POST /api/decay
+POST /api/recall      POST /api/working/push
 ```
 
 全部端点带 `Access-Control-Allow-Origin: *`，方便单独打开的 HTML 直接连。
 
-![仪表盘概览](docs/screenshots/dashboard-overview.png)
+![观测仪 · 概览](docs/screenshots/dash-vitals.png)
 
-| 时间线 | 知识图谱 |
+| 编年史 | 纤维追踪 |
 | --- | --- |
-| ![时间线](docs/screenshots/dashboard-timeline.png) | ![知识图谱](docs/screenshots/dashboard-graph.png) |
+| ![编年史](docs/screenshots/dash-chronicle.png) | ![纤维追踪](docs/screenshots/dash-tractography.png) |
 
-| 衰减热力图 | 手机（390 px） |
+| 衰减实验 | 手机（390 px） |
 | --- | --- |
-| ![衰减热力图](docs/screenshots/dashboard-heatmap.png) | ![移动端](docs/screenshots/dashboard-mobile.png) |
+| ![衰减实验](docs/screenshots/dash-decay.png) | ![移动端](docs/screenshots/dash-mobile.png) |
 
-### 6.3 3D 记忆大脑
+### 6.3 3D 记忆观测仪
 
 - `web/brain-3d.html`：开发版，`vendor/three.global.min.js` 外链，作为插件静态资源由 `/deepseek-brain/brain-3d.html` 提供，读实时 `/api/state`。
 - `dist/deepseek-brain-3d.html`：构建产物，three.js 内联进同一个文件，双击即开、离线可用，此时用内置 20 条演示记忆。
@@ -291,50 +298,64 @@ POST /api/working/push
 node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 ```
 
+**这台仪器做什么（不是装饰动画）**
+
+| 屏幕上的东西 | 背后的真实运算 |
+| --- | --- |
+| 每枚 engram（记忆痕迹）一颗多棘核 | 一条真实记忆。核的尺寸 ∝ `importance`、亮度 ∝ `salience`、棘丝条数 ∝ 重要度、棘长 ∝ `strength`；全部由 `api/state` 的同名字段驱动 |
+| 五层形态不同：感觉=彗星、工作=环链、情景=多棘星、语义=晶格、程序=双楔 | 层的语义差异；语义晶格的连线是真实三元组与共享实体的边 |
+| 核的位置永远固定 | FNV-1a 确定性寻址（见 `docs/API.md` §7）：同一条记忆每次刷新都落在同一格，你看到的刻度可被复现 |
+| 点击任何一枚 → 右侧「目镜」 | 弹出该条记忆的完整字段：`id / slot u,v / 盘内 r,θ / anchor / ageDays / strength / salience / hits / ts / 遗忘预报` |
+| 底板上的「时间切片」与转盘 | 拖动即 `GET /api/state?at=±Nd`，整具标本按那一时刻重新计算强度，随时可回到 `now` |
+| 顶栏 `事件序号`、观测条脉冲 | `GET /api/activity?since=` 的增量：Agent 每次检索/写入/遗忘都在标本上打出一次脉冲 |
+| 检索台 | 真的 `POST /api/recall`，命中项按 `score` 亮起并连出白质纤维束 |
+| 「睡眠 / 衰减 / 遗忘」压印按钮 | 真的 `POST /api/sleep`、`/api/decay`、`/api/forget`，迁移与归档在标本上留下路径与残影 |
+
+**三种模式**：`观测`（全景标本）、`目镜`（选中单条记忆的切片）、`剖面`（切开半球看深部结构）。左侧「五区·计数」是解剖板，点一层即定位到该区并展开计数刻度。
+
 **手势（Pointer Events，鼠标与触屏同一套）**
 
 | 操作 | 鼠标 | 触屏 | 效果 |
 | --- | --- | --- | --- |
-| 旋转 | 左键拖拽 | 单指拖拽 | 360° 环绕大脑 |
-| 缩放 | 滚轮 | 双指捏合 | 拉近看脑沟回 |
+| 旋转 | 左键拖拽 | 单指拖拽 | 360° 环绕标本 |
+| 缩放 | 滚轮 | 双指捏合 | 拉近看脑沟回与棘丝 |
 | 平移 | 右键拖拽 | 双指拖拽 | 平移视点 |
-| 选中 | 单击脑区/粒子 | 单指点击 | 相机平滑飞入 + 记忆详情面板 |
-| 复位 | 双击空白 / 复位按钮 | 双击 | 回到全景视角 |
+| 选中 | 单击 engram 或左板层名 | 单指点选 | 相机飞入 + 目镜展开该条记忆 |
+| 复位 | `Esc` / 「全景」 | 收起目镜 | 回到全景 |
 
-底部滑杆控制自转速度，可开关自动巡航与演示模式；左侧五层列表点击即定位到对应脑区。
+![3D 记忆观测仪](docs/screenshots/brain3d.png)
 
-![3D 记忆大脑](docs/screenshots/brain-3d.png)
-
-| 点击脑区后飞入（真实 CDP 点击） | 手机（390 px） |
+| 点开一枚 engram 的目镜（真实 CDP 点击） | 手机（390 px） |
 | --- | --- |
-| ![脑区聚焦](docs/screenshots/brain-3d-focus.png) | ![移动端](docs/screenshots/brain-3d-mobile.png) |
+| ![目镜](docs/screenshots/brain3d-eyepiece.png) | ![移动端](docs/screenshots/brain3d-mobile.png) |
 
-**几何与脑区映射**（`BRAIN = {AX 1.24, AY 1.35, AZ 2.04}`，约 1 : 1.09 : 1.65）
+**几何与脑区映射**（`BRAIN = {AX 1.42, AY 1.50, AZ 1.98}`）
 
-- 两个**闭合**半球：内侧顶点被 softMax 折到 `x ≈ ±gapHalf` 的墙面上，两壁之间是真缝（纵裂），槽旁有皮层隆起与两条顶点色高光，内壁压成近黑。
-- 沟回是两族倾斜板（相位 `zl*22 + y*11` 与 `y*19 - zl*7`）叠加 3 阶 fbm 扭曲，`sul = pow(0.5-0.5cos(phase), 5)`，峰值到谷值约 0.12–0.15 世界单位；中央沟与外侧裂用固定坐标写死。
-- 材质 `MeshPhysicalMaterial`（transmission / clearcoat / ior）+ 高画质档额外一层菲涅尔外壳；低画质档退化为 `MeshStandardMaterial`。
-- 五个脑区：感觉记忆→皮质前端，工作记忆→前额叶，情景记忆→海马体（颞叶深部），语义记忆→颞叶外侧皮层，程序记忆→基底节（深部）；每区有光球、脉冲环与 DOM 计数标签，深部锚点不做背面剔除。
+- 两个**闭合**半球：内侧顶点被 softMax 折到 `x ≈ ±gapHalf` 的墙面上，两壁之间是真缝（纵裂），槽旁有皮层隆起与顶点色高光，内壁压成近黑；脑底面在 Sylvian 裂以下压平，接近真实的颅底。
+- 沟回由三族倾斜板叠加 fbm 扭曲生成（`bandA/bandB/bandC`），`sul` 取最大值后做锐化，`disp = 1 + 0.086·bump − 0.118·sul`；中央沟与外侧裂用固定坐标写死。
+- 皮层用 `MeshStandardMaterial` 承接真实定向光（key/fill/rim 三灯 + 半球光），顶点色承载沟回的「沟底变暗」；engram 用 `depthTest:false` 的 X 光叠加，所以能隔着皮质看到深部结构——这是仪器语义，不是穿模。
+- 五个脑区锚点：感觉 `(-0.42, 0.86, 1.12)`、工作 `(0.48, 0.34, 1.60)`、情景 `(-0.88, -0.30, 0.14)`、语义 `(1.14, -0.40, 0.06)`、程序 `(-0.30, -0.12, -0.28)`；半径 .34/.30/.26/.38/.22。
 
 **性能（目标 60 fps，含移动端）**
 
 | 手段 | 说明 |
 | --- | --- |
-| 单缓冲粒子 | 全部记忆是**一个** `THREE.Points` + 自定义 `ShaderMaterial`，每个粒子用 `aSize/aColor/aGlow/aShape` 顶点属性区分；按 id 差量同步，不在帧内重建几何 |
-| 绘制上限 | 预分配 `MAX_PARTICLES = 2000` 并用 `setDrawRange` 控制实际绘制量；超出后每层聚合成一个「碎屑」环，左侧图例有说明 |
-| 零帧内分配 | 渲染循环里复用模块级 `Vector3` 临时量，避免每帧 GC 抖动 |
-| 拾取开销 | 射线只打 5 个不可见代理球，不打高面数大脑网格 |
-| 画质分档 | `hardwareConcurrency ≤ 4 / dpr×width > 2600 / 视口短边 < 720` 时自动降级：关抗锯齿、`pixelRatio` ≤ 1.5、网格分段 104×78 而非 192×144、去掉线框层、用普通透明材质替代透射材质、星点 1100→520 |
-| 离屏暂停 | `document.hidden` 或 `IntersectionObserver` 判定不可见时不渲染 |
-| 抗抖动 | 惯性阻尼 + `prefers-reduced-motion` 下直接跳切镜头，不做长动画 |
-| 调试 | 按 `d` 显示 `renderer.info`（draw calls / triangles / 帧耗） |
+| 实例化 engram 核 | 每层一个 `InstancedMesh`（上限 512），一次 draw call 画完整层；尺寸/亮度/明暗走实例属性，不在帧内重建几何 |
+| 线条合并 | 纤维束、环、刻度全部并进一个 `LineSegments`（`LINE_SEGS` 上限），一次提交 |
+| 脉冲池 | 检索/写入的激活脉冲是固定容量的 `Points` 池，循环复用，绝不 `new` |
+| 零帧内分配 | 渲染循环复用模块级 `Vector3`/`Color` 临时量 |
+| 拾取开销 | 射线只与每层的 picked proxy 求交，不打高面数皮质 |
+| 画质分档 | `hardwareConcurrency ≤ 4 / dpr×width > 2600 / 视口短边 < 720` 时降级：关抗锯齿、`pixelRatio` ≤ 1.5、分段 96×72、关菲涅尔壳与颗粒 |
+| 离屏暂停 | `document.hidden` 时停渲染，轮询也暂停 |
+| 抗抖动 | 惯性阻尼；`prefers-reduced-motion` 下镜头跳切、不做长动画 |
+| 调试 | 按 `d` 显示 HUD：draw calls / triangles / 帧耗 / 实例数 |
 
 ---
 
 ## 7. 测试与调试
 
 ```bash
-node --test test/            # 48 个用例：分层算法 / 存储 / 记忆系统 / HTTP API / 插件契约 / 前端产物
+node --test test/            # 61 个用例：分层算法 / 存储 / 记忆系统 / HTTP API / 活动流 / 插件契约 / 前端产物
 node tools/demo.mjs          # 灌入 20 条演示记忆并打印脑图
 DEEPSEEK_BRAIN_DIR=/tmp/brain node tools/demo.mjs   # 用临时数据目录，不碰真实记忆
 ```
@@ -346,7 +367,8 @@ DEEPSEEK_BRAIN_DIR=/tmp/brain node tools/demo.mjs   # 用临时数据目录，�
 | `test/layers.test.js` | 实体抽取、注意闸门、话题栈与小话题过滤、情景衰减与钉住、语义别名/冲突历史、程序记忆去重、巩固摘要、检索权重、ASCII 对齐、Markdown 档案 |
 | `test/store.test.js` | 原子写、备份轮转上限、损坏文件隔离与恢复 |
 | `test/memory.test.js` | 落盘/重启后记忆存活、观察闸门、recall、软删除、衰减清理、睡眠巩固、`apiState` 契约、演示数据、prompt 块、配置夹取 |
-| `test/server.test.js` | 全端点、CORS/预检、静态资源、路径穿越拒绝、坏 JSON 结构化报错 |
+| `test/activity.test.js` | 活动流：seq 单调、payload 不能伪造 `seq/kind`、未知 kind 回退、环形缓冲上限、`since()` 只返回增量 |
+| `test/server.test.js` | 全端点、CORS/预检、静态资源、路径穿越拒绝、坏 JSON 结构化报错、`salience` 派生、时间旅行、`forgetInDays` 预报、`POST /api/recall` |
 | `test/plugin.test.js` | cordis 契约、7 个工具 schema 只使用 DSH 支持的 JSON Schema 子集、端到端工具调用、`session/event` 捕获、prompt 注入 |
 | `test/frontend.test.js` | 两个页面无远程依赖、内联脚本可编译、3D 页引用 vendor + `api/state` + 五层名称、`dist` 单文件把 three.js 内联且无外链 |
 
@@ -355,18 +377,22 @@ DEEPSEEK_BRAIN_DIR=/tmp/brain node tools/demo.mjs   # 用临时数据目录，�
 - `GET /deepseek-brain/api/health`：数据目录、各层条数、备份数、向量状态、`warnings`。
 - 脑图底部「记忆健康面板」就是同一份统计的可读版。
 - 想看某条为什么被召回：`recall` 的 `parts` 里有 `keyword / importance / freshness / vector` 四个分量。
+- 想看引擎刚刚做了什么：`GET /api/activity?since=<seq>`，观测仪底部的「活动记录」就是它的渲染。
+- 想验证遗忘：`GET /api/state?at=%2B30d` 看 `forgetInDays` 归零的那几条，再 `POST /api/decay` 让它们真的进归档。
 - 插件初始化失败不会炸掉会话，错误进 `memory.warnings` 并在 `api/health` 里可见。
 
 ### 7.1 本机实测记录
 
 | 项 | 结果 |
 | --- | --- |
-| `node --test test/` | 48 pass / 0 fail |
+| `node --test test/` | 61 pass / 0 fail |
 | 真实安装 | `dsh plugin --profile brain-selftest add ./deepseek-brain` → pnpm link 成功，`dsh.profile.bundles` 自动写入 `deepseek-brain`，`dsh --dump-config` 出现 `- id: deepseek-brain` |
-| 真实 HTTP | `dashboard.html` / `brain-3d.html` / `vendor/three.global.min.js` / `api/state` 全部 200，`api/state` 7.7 KB，regions 计数与库内条数一致 |
+| 真实 HTTP | `dashboard.html` / `brain-3d.html` / `vendor/three.global.min.js` / `api/state` 全部 200，`api/state` 10 KB（v2 增加了 salience/预报/活动序号），regions 计数与库内条数一致 |
+| 真实检索 | `POST /api/recall {"query":"张伟 会议 排期"}` → 3 命中，top 0.624，活动流记下 `#001 检索「张伟 会议 排期」· 3 命中 · 3ms` |
+| 遗忘预报 | importance 1 的新条目 `forgetInDays = 13.86`；`?at=%2B10d` 后同一条变 `3.86`；`importance ≥ 4` 一律 `null`（pinned） |
 | 20 天剧本（λ=0.08） | sleep `{"migrated":3,"compressed":0,"pruned":0,"digests":0,"kept":9}`，重载后 episodic 9 条、archive 与 backups 一致 |
-| 3D 交互 | 用 Chrome DevTools Protocol 真实点击脑区：相机飞入、面板列出该区条目（时间/星级/强度/删除），`返回全景` 可复位；POST `/api/remember` 后 4 s 轮询内顶栏计数与粒子同步 |
-| 移动端 | 390×844 真视口下仪表盘四视图无横向溢出，3D 底栏三列两行完整 |
+| 3D 交互 | CDP 真实点击 engram：相机飞入 + 目镜列出 `id / slot u,v / 盘内 r,θ / anchor / ageDays / strength / salience / hits / ts / 遗忘预报`；`飞入 / 检索轨迹 / 遗忘此条` 三个按钮均打到真实端点 |
+| 移动端 | 390×844（CDP `Emulation.setDeviceMetricsOverride`）下观测仪四页无横向溢出、3D 竖屏不裁两颞侧，目镜改为底部抽屉 |
 
 3D 页另外有一份离线冒烟：`web/brain-3d.html` 复制到没有 `vendor/` 的目录会显示可读错误卡而不是白屏。
 
@@ -379,8 +405,8 @@ deepseek-brain/
 ├── cordis.patch.yml          # DSH bundle 插入声明
 ├── package.json              # main: lib/index.js, dsh.bundle.patch
 ├── lib/
-│   ├── index.js              # 插件入口：7 个工具 + prompt 注入 + 事件捕获 + Web 挂载
-│   ├── memory.js             # MemorySystem：五层编排、配置、状态、prompt 块、演示数据
+│   ├── index.js              # 插件入口：7 个工具 + prompt 注入 + 事件捕获 + Web 挂载 + 自主遗忘定时器
+│   ├── memory.js             # MemorySystem：五层编排、配置、状态、prompt 块、演示数据、遗忘预报
 │   ├── store.js              # 原子写、备份轮转、损坏恢复
 │   ├── sensory.js            # 感觉缓冲 + 实体抽取 + 注意闸门
 │   ├── working.js            # 话题栈 + 话题检测
@@ -389,32 +415,36 @@ deepseek-brain/
 │   ├── procedural.js         # 规则/习惯
 │   ├── retrieval.js          # 检索引擎与分数拆解
 │   ├── consolidation.js      # 睡眠式巩固
+│   ├── activity.js           # 认知活动流（3D / 观测仪的事件源）
 │   ├── vector.js             # 可选向量召回（hash / lancedb）
 │   ├── render.js             # ASCII 脑图与健康面板
 │   ├── snapshot.js           # Markdown 记忆档案
-│   └── server.js             # 仪表盘 + JSON API
+│   └── server.js             # 观测仪 + JSON API（含 ?at= 时间旅行与 /api/recall）
 ├── web/
-│   ├── brain-3d.html         # 3D 大脑（开发版，外链 three）
-│   ├── dashboard.html        # 仪表盘（单文件）
+│   ├── brain-3d.html         # 3D 记忆观测仪（开发版，外链 three）
+│   ├── dashboard.html        # 记忆观测仪（单文件）
 │   └── vendor/               # three.js 全局构建
-├── dist/deepseek-brain-3d.html  # 单文件 3D 大脑（构建产物）
+├── dist/deepseek-brain-3d.html  # 单文件 3D 观测仪（构建产物，three 内联）
 ├── tools/                    # serve（本地预览）/ demo / build-3d / build-global-three
-├── test/                     # 48 个 Node 原生测试
+├── test/                     # 61 个 Node 原生测试
 ├── docs/
-│   ├── API.md                # 前端契约（端点 + state JSON 结构 + 脑区锚点）
-│   ├── EXAMPLES.md           # 三个示例的 curl / PowerShell / Node 入口
-│   └── screenshots/          # 仪表盘四视图与 3D 大脑截图
+│   ├── API.md                # 前端契约 v2.1（端点 + state 结构 + 确定性 engram 寻址）
+│   ├── DESIGN-v2.md          # 观测仪设计说明：形态学、色彩、排版、事件编排、性能预算
+│   ├── EXAMPLES.md           # 示例：记忆 / 检索 / 可视化 / 观察大脑正在想什么
+│   └── screenshots/          # 观测仪四页、3D 目镜与移动端截图
 ```
 
 ## 9. 边界
 
-- 记忆只存在本机，插件不做任何网络请求；仪表盘监听 `127.0.0.1`。
+- 记忆只存在本机，插件不做任何网络请求；观测仪监听 `127.0.0.1`。
 - 自动捕获有闸门（问候、过短、纯提问不写入），避免垃圾记忆污染；仍建议用 `importance` 与 `brain_forget` 维护。
+- 遗忘是**真的**：`autoDecayMinutes`（默认 30）到点自动 `decayPass()`，跌破阈值的记忆移入 `archive.json`；3D 里那枚 engram 会随之消失，而不是只变暗。
 - `vector` 默认关闭。`hash` provider 只是字符级哈希相似度，不是真正的语义嵌入；接 LanceDB 时可以注入自己的 embedding。
 - Windows 上文件写入走「删目标再 rename」的回退路径，极端断电窗口内可能丢一次写入，但有备份兜底。
 - 3D 页面在 `file://` 下无法访问 API，会自动切到内置演示记忆；实时数据请走 `brain_dashboard` 给出的 URL。
-- 3D 大脑是**程序化近似**，不是医学模型：沟回由两族倾斜板 + fbm 扭曲生成，近景局部会看出「平行香肠排」，缺少一级沟→次级沟的尺度递进；额极/枕极偏圆钝；小脑叶片是正弦条纹，远看合格、近看机械。默认视角为了保住纵裂可读性压低了方位角，前后 1.65 的长宽比在投影上不明显，转到侧位才能看清。
+- 3D 皮质是**程序化近似**，不是医学模型：沟回由三族倾斜板 + fbm 扭曲生成，缺少一级沟→次级沟的真实尺度递进，额极/枕极偏圆钝，小脑叶片是正弦条纹；远看合格，贴近看依然是「生成物」。engram 用 X 光叠加（`depthTest:false`）是刻意的仪器语义，不是穿模。
+- 时间旅行只重算**强度与预报**，不会真的把记忆写回过去；`?at=` 是只读的时间切片。
 - Windows PowerShell 的 `Invoke-RestMethod` 默认按 ANSI 发 body，中文会变成 `??`；用 `[Text.Encoding]::UTF8.GetBytes($body)`（见 `docs/EXAMPLES.md`）。
-- 仪表盘时间线在 390 px 下隐藏层标签与强度条，层身份只剩颜色；1024×768 概览仍需纵向滚动。
+- 390 px 下观测仪把左侧脑区表收成横向条、把目镜改成底部抽屉；3D 页在竖屏会把标本按比例拉远，避免裁掉两颞侧，代价是上下留白。
 
 MIT License.

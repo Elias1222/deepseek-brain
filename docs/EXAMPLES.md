@@ -149,6 +149,45 @@ curl -s -X POST http://127.0.0.1:7799/deepseek-brain/api/decay -H 'content-type:
 
 ---
 
+## 示例四：观察大脑正在想什么（v2 新增）
+
+这三个端点是「仪器化」的地基：界面上看到的每一缕光、每一个数字都来自它们，而不是前端编造的动画。
+
+**① 时间旅行：三天前的我还记得什么？**
+
+```bash
+curl -s 'http://127.0.0.1:7799/deepseek-brain/api/state?at=-3d' | jq '{at, episodic: [.episodic[] | {event, strength, forgetInDays}]}'
+curl -s 'http://127.0.0.1:7799/deepseek-brain/api/state?at=%2B30d' | jq '[.episodic[] | {event, salience}]'
+```
+
+`-3d` 回看、`+30d` 预演，服务端用同一套 `importance × exp(-λ·天数)` 重算强度，并给出 `forgetInDays`
+（「还剩几天跌破阈值」，`importance ≥ 4` 的条目是 `null` —— 它们永不忘）。
+
+**② 真实检索：调用一次，看分数怎么来的**
+
+```bash
+curl -s -X POST http://127.0.0.1:7799/deepseek-brain/api/recall \
+  -H 'content-type: application/json' \
+  -d '{"query":"张伟 会议 排期","topK":5}'
+```
+
+返回的 `hits[].parts` 就是「为什么它被想起来」。3D 大脑里的激活脉冲按 `score` 决定强度与分叉数。
+
+**③ 活动流：Agent 每一刻对记忆做了什么**
+
+```bash
+curl -s 'http://127.0.0.1:7799/deepseek-brain/api/activity?since=0' | jq '.events[] | {seq, kind, query, hits}'
+```
+
+7 种事件：`observe`（用户输入过感觉缓冲）、`recall`（检索）、`remember`（写入）、`correct`（冲突修正）、
+`forget`（软删除）、`consolidate`（睡眠巩固迁移）、`decay`（衰减清理）。轮询 `?since=<上一批的 seq>` 即可增量取。
+
+> 小技巧：把 `api/state`、`api/activity` 接进你自己的脚本，就能在终端里复刻 3D 观测仪的读数；
+> 两个前端做的是同一件事，只是把它们画了出来。
+
+
+---
+
 ## 一次完整的 20 天剧本
 
 `node tools/demo.mjs --fresh` 之后跑下面这段，能看到「记住 → 衰减 → 巩固 → 遗忘」的完整闭环：

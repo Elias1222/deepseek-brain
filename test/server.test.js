@@ -166,3 +166,151 @@ test('sleep and decay endpoints report their work', async () => {
     assert.equal(typeof decayed.json.forgotten, 'number');
   });
 });
+
+test('state exposes derived salience for every layer', async () => {
+  await withServer(async ({ origin }) => {
+    const res = await get(origin, '/api/state');
+    const { episodic, semantic, procedural } = res.json;
+    assert.ok(episodic.length > 0 && semantic.length > 0 && procedural.length > 0);
+    for (const item of [...episodic, ...semantic, ...procedural]) {
+      assert.equal(typeof item.ageDays, 'number');
+      assert.ok(item.ageDays >= 0);
+      assert.equal(typeof item.salience, 'number');
+      assert.ok(item.salience >= 0 && item.salience <= 1, `salience out of range: ${item.salience}`);
+    }
+    const pinned = episodic.filter((it) => it.importance >= 4);
+    assert.ok(pinned.every((it) => it.salience > 0.3), 'pinned memories stay visible');
+  });
+});
+
+test('time travel requests recompute episodic strength at the given instant', async () => {
+  await withServer(async ({ origin }) => {
+    const now = (await get(origin, '/api/state')).json;
+    const past = await get(origin, '/api/state?at=-10d');
+    assert.equal(past.status, 200);
+    assert.ok(past.json.at < now.at);
+    const key = (state) => new Map(state.episodic.map((it) => [it.id, it.strength]));
+    const nowMap = key(now);
+    // 10 days in the past the same memory is fresher, so its strength is higher;
+    // 30 days in the future it has decayed further. Pinned items never fade.
+    for (const item of past.json.episodic) {
+      const reference = nowMap.get(item.id);
+      if (reference === undefined || item.importance >= 4) continue;
+      assert.ok(item.strength > reference, `${item.id} should be fresher 10 days ago`);
+    }
+    const future = await get(origin, '/api/state?at=%2B30d');
+    assert.equal(future.status, 200);
+    // the server evaluates "+30d" against its own clock, a few ms after ours
+    assert.ok(Math.abs(future.json.at - (now.at + 30 * 86_400_000)) < 5000, '"+30d" resolves into the future');
+    const ahead = await get(origin, `/api/state?at=${now.at + 30 * 86_400_000}`);
+    const aheadMap = key(ahead.json);
+    for (const item of ahead.json.episodic) {
+      const reference = nowMap.get(item.id);
+      if (reference === undefined || item.importance >= 4) continue;
+      assert.ok(item.strength < reference, `${item.id} should be weaker 30 days ahead`);
+    }
+    const iso = new Date(now.at - 86_400_000).toISOString();
+    const byIso = await get(origin, `/api/state?at=${encodeURIComponent(iso)}`);
+    assert.equal(byIso.json.at, Date.parse(iso));
+    const garbage = await get(origin, '/api/state?at=not-a-date');
+    assert.equal(garbage.status, 200);
+    assert.ok(Math.abs(garbage.json.at - now.at) < 5000, 'unparsable "at" falls back to now');
+  });
+});
+
+test('POST /api/recall returns ranked hits with score parts', async () => {
+  await withServer(async ({ origin }) => {
+    const res = await get(origin, '/api/recall', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: '张伟 会议 排期', topK: 4 }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.json.ok, true);
+    assert.ok(Array.isArray(res.json.hits));
+    assert.ok(res.json.hits.length > 0, 'demo brain should recall something');
+    assert.ok(res.json.hits.length <= 4);
+    const first = res.json.hits[0];
+    assert.ok(['sensory', 'working', 'episodic', 'semantic', 'procedural'].includes(first.layer));
+    for (const part of ['keyword', 'importance', 'freshness']) {
+      assert.equal(typeof first.parts[part], 'number', `missing part ${part}`);
+    }
+    assert.ok(res.json.tookMs >= 0);
+    const empty = await get(origin, '/api/recall', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: '   ' }),
+    });
+    assert.equal(empty.status, 400);
+    assert.equal(empty.json.error.code, 'missing-query');
+  });
+});
+
+test('forgetInDays is the honest forecast of the crossing instant', async () => {
+  await withServer(async ({ origin }) => {
+    const created = await get(origin, '/api/remember', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ layer: 'episodic', event: '一条即将被遗忘的小事', importance: 1 }),
+    });
+    assert.equal(created.status, 200);
+    const id = created.json.item.id;
+    const state = (await get(origin, '/api/state')).json;
+    assert.equal(state.forgetThreshold, 0.5);
+    assert.equal(state.pinnedImportance, 4);
+    const item = state.episodic.find((it) => it.id === id);
+    // importance 1 crosses 0.5 after ln(1/0.5)/0.05 = 13.86 days
+    assert.ok(Math.abs(item.forgetInDays - 13.86) < 0.2, `unexpected forecast ${item.forgetInDays}`);
+    assert.equal(item.pinned, false);
+    const pinnedItem = state.episodic.find((it) => it.pinned);
+    assert.ok(pinnedItem, 'demo brain has at least one pinned memory');
+    assert.equal(pinnedItem.forgetInDays, null);
+    const later = (await get(origin, '/api/state?at=%2B10d')).json;
+    const travelled = later.episodic.find((it) => it.id === id);
+    assert.ok(Math.abs(travelled.forgetInDays - 3.86) < 0.2, 'ten days later only 3.86 days remain');
+  });
+});
+
+test('activity log records cognition and can be polled incrementally', async () => {
+  await withServer(async ({ origin }) => {
+    const first = await get(origin, '/api/activity?since=0');
+    assert.equal(first.status, 200);
+    assert.equal(first.json.ok, true);
+    const baseSeq = first.json.seq;
+    await get(origin, '/api/recall', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: '张伟 会议' }),
+    });
+    const after = await get(origin, '/api/activity', { method: 'GET' });
+    assert.ok(after.json.seq > baseSeq, 'sequence must advance');
+    const recalled = after.json.events.filter((e) => e.kind === 'recall');
+    assert.equal(recalled.length, 1);
+    assert.equal(recalled[0].query, '张伟 会议');
+    assert.ok(recalled[0].hits.length > 0);
+    const later = await get(origin, '/api/remember', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ layer: 'semantic', subject: '用户', relation: '书名', object: '神经漫游者', importance: 4 }),
+    });
+    assert.equal(later.status, 200);
+    const tail = await get(origin, `/api/activity?since=${after.json.seq}`);
+    assert.equal(tail.json.events.length, 1);
+    assert.equal(tail.json.events[0].kind, 'remember');
+    assert.equal(tail.json.events[0].layer, 'semantic');
+    const state = await get(origin, '/api/state');
+    assert.equal(state.json.activitySeq, tail.json.seq);
+    assert.equal(state.json.lastEvent.id, tail.json.events[0].id);
+  });
+});
+
+test('parseAt understands relative, epoch and ISO forms', async () => {
+  const { parseAt } = await import('../lib/server.js');
+  const now = Date.parse('2026-10-30T12:00:00.000Z');
+  assert.equal(parseAt(null, now), now);
+  assert.equal(parseAt('-2d', now), now - 2 * 86_400_000);
+  assert.equal(parseAt('-3h', now), now - 3 * 3_600_000);
+  assert.equal(parseAt('2026-10-01T00:00:00.000Z', now), Date.parse('2026-10-01T00:00:00.000Z'));
+  assert.equal(parseAt(String(now - 1000), now), now - 1000);
+  assert.equal(parseAt('nonsense', now), now);
+});

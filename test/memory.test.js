@@ -156,3 +156,28 @@ test('config is clamped into safe ranges', async () => {
   assert.equal(memory.config.sensoryCapacity, 3);
   assert.equal(memory.config.topK, 20);
 });
+
+test('autonomous decay interval is optional and clamped, 0 disables it', async () => {
+  assert.equal((await makeMemory().init()).config.autoDecayMinutes, 30);
+  assert.equal((await makeMemory({ autoDecayMinutes: 0 }).init()).config.autoDecayMinutes, 0);
+  assert.equal((await makeMemory({ autoDecayMinutes: 99999 }).init()).config.autoDecayMinutes, 1440);
+  assert.equal((await makeMemory({ autoDecayMinutes: 'soon' }).init()).config.autoDecayMinutes, 0);
+});
+
+test('a memory really disappears once its strength falls under the threshold', async () => {
+  const memory = await makeMemory({ demoSeed: false }).init();
+  const weak = memory.remember({ layer: 'episodic', event: '顺手提了一句的小事', importance: 1 }).item;
+  const kept = memory.remember({ layer: 'episodic', event: '说好的周六看展', importance: 4 }).item;
+  // pretend both were written 60 days ago: 1*exp(-0.05*60) = 0.05 < 0.5, 4*exp(-3) = 0.2 but pinned
+  const longAgo = new Date(Date.now() - 60 * 86_400_000).toISOString();
+  memory.episodic.find((it) => it.id === weak.id).ts = longAgo;
+  memory.episodic.find((it) => it.id === kept.id).ts = longAgo;
+  const report = memory.decayPass();
+  assert.equal(report.forgotten, 1);
+  assert.deepEqual(report.ids, [weak.id]);
+  assert.equal(memory.episodic.length, 1);
+  assert.equal(memory.episodic[0].id, kept.id);
+  assert.equal(memory.archive.at(-1).id, weak.id, 'forgotten memory is archived, never destroyed');
+  const kinds = memory.activity.recent(6).map((e) => e.kind);
+  assert.ok(kinds.includes('decay'), 'the decay sweep shows up in the activity stream');
+});
