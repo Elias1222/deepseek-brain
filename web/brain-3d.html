@@ -882,10 +882,62 @@
      mirrored closed hemispheres, softMax sagittal fold, gyral fbm, cerebellum,
      brainstem. Kept from the anatomical model of v1; rendering is new.
      ======================================================================= */
-  var BRAIN = { AX: 1.42, AY: 1.50, AZ: 1.98 };
+  var BRAIN = { AX: 1.40, AY: 1.46, AZ: 2.02 };
   var COL_BONE = new THREE.Color('#ded8c9');
   var COL_DEEP = new THREE.Color('#1b1d1e');
   var COL_TISSUE = new THREE.Color('#8d8b7f');
+
+  /* ── 脑叶并集：不是一颗椭球，而是额/顶/枕/颞四叶的平滑并集 ──────────────
+     皮层轮廓由这个隐式场求出：沿每条射线二分找边界，得到真实的叶间起伏
+     （额极收窄、颞叶外凸、枕极圆钝），沟回位移再叠在它上面。            */
+  /* [cx,cy,cz, rx,ry,rz, mirror?] — 单位球空间里的四叶，颞叶按 side 镜像 */
+  var LOBE_C = [
+    [0.00, 0.06, 0.50, 0.86, 0.84, 0.80, 0],   /* 额叶：前下方略收 */
+    [0.00, 0.26, -0.20, 0.92, 0.92, 0.72, 0],  /* 顶叶：顶点抬高 */
+    [0.00, -0.06, -0.68, 0.78, 0.64, 0.50, 0], /* 枕叶：圆钝 */
+    [-0.66, -0.30, 0.10, 0.50, 0.40, 0.72, 1]  /* 颞叶：外凸但不臃肿 */
+  ];
+
+  function lobeField(x, y, z, side) {
+    var best = -9;
+    var lobes = LOBE_C;
+    for (var i = 0; i < lobes.length; i++) {
+      var L = lobes[i];
+      var dx = (x - (L[6] ? L[0] * side : L[0])) / L[3];
+      var dy = (y - L[1]) / L[4];
+      var dz = (z - L[2]) / L[5];
+      var v = 1 - (dx * dx + dy * dy + dz * dz);
+      /* polynomial smooth-max：叶与叶之间是圆角过渡，不是硬边 */
+      var k = 0.14;
+      var h = clamp(0.5 + 0.5 * (v - best) / k, 0, 1);
+      best = lerp(best, v, h) + k * h * (1 - h) * 0.5;
+    }
+    return best;
+  }
+
+  function lobeRadius(px, py, pz, side) {
+    var lo = 0.05, hi = 2.30;
+    for (var i = 0; i < 16; i++) {
+      var mid = (lo + hi) * 0.5;
+      if (lobeField(px * mid, py * mid, pz * mid, side) > 0) lo = mid; else hi = mid;
+    }
+    return (lo + hi) * 0.5;
+  }
+
+  /* 把叶并集的最大半径归一化到 1，BRAIN.AX/AY/AZ 才是真正的尺寸 */
+  var LOBE_K = (function () {
+    var m = 0.001;
+    for (var i = 0; i < 32; i++) {
+      var a = (i / 32) * Math.PI * 2;
+      for (var j = 1; j < 8; j++) {
+        var el = -1 + (2 * j) / 8;
+        var rr = Math.sqrt(Math.max(0, 1 - el * el));
+        var d = lobeRadius(Math.cos(a) * rr, el, Math.sin(a) * rr, 1);
+        if (d > m) m = d;
+      }
+    }
+    return 1 / m;
+  })();
 
   function hemiPoint(px, py, pz, side) {
     var warpA = fbm(px * 3.1 + 11.3, py * 3.1 - 4.1, pz * 3.1 + 7.7, 3);
@@ -906,14 +958,15 @@
     var central = Math.exp(-Math.pow((pz - 0.18 + 0.12 * py) / 0.085, 2)) * smoothstep(0.15, 0.6, Math.abs(py));
     sul = Math.max(sul, 0.94 * Math.max(sylv, central * 0.78));
     var disp = 1 + 0.086 * bump - 0.118 * sul;
-    var bulge = 0.17 * Math.exp(-Math.pow((py + 0.44) / 0.50, 2)) * Math.exp(-Math.pow((pz + 0.10) / 0.92, 2));
+    /* 叶形半径：同一条射线上的边界由四叶并集给出，不再是单位球 */
+    var lobe = lobeRadius(px, py, pz, side) * LOBE_K;
     var mx = softMax(px, 0.018, 0.085);
     /* the base of the brain is flat (inferior surface), not a sphere cap */
     var pyFlat = py < -0.30 ? -0.30 + (py + 0.30) * 0.58 : py;
-    var x = side * mx * (disp + bulge) * BRAIN.AX * 0.92;
-    var y = pyFlat * disp * BRAIN.AY * 0.88 + 0.05 * smoothstep(0.4, 1.0, -pz);
-    var z = pz * disp * BRAIN.AZ;
-    x *= 1 - 0.20 * smoothstep(0.25, 1.0, pz);
+    var x = side * mx * lobe * disp * BRAIN.AX * 0.92;
+    var y = pyFlat * lobe * disp * BRAIN.AY * 0.88 + 0.05 * smoothstep(0.4, 1.0, -pz);
+    var z = pz * lobe * disp * BRAIN.AZ;
+    x *= 1 - 0.10 * smoothstep(0.45, 1.0, pz);
     return { x: x, y: y, z: z, sul: sul, bump: bump, shade: clamp(0.20 + 0.95 * bump * (1 - 0.85 * sul) + 0.10 * warpB, 0, 1) };
   }
 
@@ -1003,7 +1056,7 @@
     });
   }
 
-  /* cerebellum: folia stripes */
+  /* cerebellum: two hemispheres + vermis, folia stripes */
   (function () {
     var g = new THREE.SphereGeometry(1, QUALITY.low ? 48 : 72, QUALITY.low ? 32 : 48);
     var p = g.attributes.position, colors = new Float32Array(p.count * 3), v = new THREE.Vector3(), c = new THREE.Color();
@@ -1011,16 +1064,22 @@
       v.set(p.getX(i), p.getY(i), p.getZ(i));
       var folia = Math.sin(v.y * 46 + fbm(v.x * 4, v.y * 4, v.z * 4, 2) * 5);
       var r = 1 + 0.028 * folia;
-      p.setXYZ(i, v.x * 0.64 * r, v.y * 0.34 * r, v.z * 0.46 * r);
+      p.setXYZ(i, v.x * 0.44 * r, v.y * 0.32 * r, v.z * 0.44 * r);
       c.copy(COL_DEEP).lerp(COL_TISSUE, 0.42 + 0.36 * (folia * 0.5 + 0.5));
       colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     g.computeVertexNormals();
-    var m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true,
-      opacity: 0.62, depthWrite: false, blending: THREE.NormalBlending, fog: false }));
-    m.position.set(0, -0.74, -1.36); m.rotation.x = -0.10; m.renderOrder = 2;
-    world.add(m);
+    var mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true,
+      opacity: 0.62, depthWrite: false, blending: THREE.NormalBlending, fog: false });
+    [-1, 1].forEach(function (s) {
+      var m = new THREE.Mesh(g, mat);
+      m.position.set(s * 0.30, -0.74, -1.30); m.rotation.x = -0.10; m.renderOrder = 2;
+      world.add(m);
+    });
+    var vermis = new THREE.Mesh(g, mat);
+    vermis.position.set(0, -0.72, -1.24); vermis.scale.set(0.36, 0.92, 0.86);
+    vermis.rotation.x = -0.10; vermis.renderOrder = 2; world.add(vermis);
   })();
 
   /* brainstem + pons */
@@ -1093,19 +1152,111 @@
     };
   }
 
-  /* 检索会沿束把走过的路段点着：脉冲是头，痕迹是尾 */
-  var traceBuf = makeLineBuffer(1400, 1);
-  traceBuf.mesh.renderOrder = 7;
-  /* 检索痕迹要能透过皮质被看见，与 engram 的 X 光叠加同一语义 */
-  traceBuf.mesh.material.depthTest = false;
+  /* 检索束：屏幕空间加粗的管线（1px 的 LineSegments 读不出「束」）——
+     每段生成一个朝屏幕法向撑开的四边形，宽度按 score 与尾迹衰减。      */
+  function makeFatBuffer(cap) {
+    var geo = new THREE.BufferGeometry();
+    var verts = cap * 6;
+    var pos = new Float32Array(verts * 3);
+    var oth = new Float32Array(verts * 3);
+    var side = new Float32Array(verts);
+    var wid = new Float32Array(verts);
+    var col = new Float32Array(verts * 3);
+    var alp = new Float32Array(verts);
+    var pa = new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage);
+    var oa = new THREE.BufferAttribute(oth, 3).setUsage(THREE.DynamicDrawUsage);
+    var sa = new THREE.BufferAttribute(side, 1).setUsage(THREE.DynamicDrawUsage);
+    var wa = new THREE.BufferAttribute(wid, 1).setUsage(THREE.DynamicDrawUsage);
+    var ca = new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage);
+    var aa = new THREE.BufferAttribute(alp, 1).setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('position', pa);
+    geo.setAttribute('aOther', oa);
+    geo.setAttribute('aSide', sa);
+    geo.setAttribute('aWidth', wa);
+    geo.setAttribute('aColor', ca);
+    geo.setAttribute('aAlpha', aa);
+    geo.setDrawRange(0, 0);
+    var mat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, depthTest: false,
+      blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide,
+      uniforms: {
+        uRes: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+        uPixelRatio: { value: 1 }
+      },
+      vertexShader: [
+        'attribute vec3 aOther; attribute float aSide; attribute float aWidth;',
+        'attribute vec3 aColor; attribute float aAlpha;',
+        'uniform vec2 uRes; uniform float uPixelRatio;',
+        'varying vec3 vC; varying float vA;',
+        'void main(){',
+        '  vec4 ca = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+        '  vec4 cb = projectionMatrix * modelViewMatrix * vec4(aOther, 1.0);',
+        '  vec2 sa = ca.xy / max(ca.w, 1e-4);',
+        '  vec2 sb = cb.xy / max(cb.w, 1e-4);',
+        '  vec2 d = sb - sa;',
+        '  if (length(d) < 1e-6) d = vec2(1.0, 0.0);',
+        '  vec2 n = normalize(vec2(-d.y, d.x));',
+        '  float w = aWidth * uPixelRatio * 2.0 / uRes.x;',
+        '  ca.xy += n * aSide * w * ca.w;',
+        '  vC = aColor; vA = aAlpha;',
+        '  gl_Position = ca;',
+        '}'
+      ].join(String.fromCharCode(10)),
+      fragmentShader: [
+        'varying vec3 vC; varying float vA;',
+        'void main(){',
+        '  float a = vA;',
+        '  if (a < 0.004) discard;',
+        '  gl_FragColor = vec4(vC, a);',
+        '}'
+      ].join(String.fromCharCode(10))
+    });
+    var mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 7;
+    var api = {
+      mesh: mesh, geo: geo, mat: mat, n: 0, cap: cap,
+      begin: function () { this.n = 0; },
+      seg: function (ax, ay, az, bx, by, bz, r, g, b, a, w) {
+        if (this.n >= this.cap) return;
+        var base = this.n * 6;
+        var sides = [-1, 1, 1, -1, 1, -1];
+        var which = [0, 0, 1, 0, 1, 1];
+        for (var k = 0; k < 6; k++) {
+          var i = base + k;
+          var first = which[k] === 0;
+          pos[i * 3] = first ? ax : bx;
+          pos[i * 3 + 1] = first ? ay : by;
+          pos[i * 3 + 2] = first ? az : bz;
+          oth[i * 3] = first ? bx : ax;
+          oth[i * 3 + 1] = first ? by : ay;
+          oth[i * 3 + 2] = first ? bz : az;
+          side[i] = sides[k];
+          wid[i] = w;
+          col[i * 3] = r; col[i * 3 + 1] = g; col[i * 3 + 2] = b;
+          alp[i] = a;
+        }
+        this.n++;
+      },
+      commit: function () {
+        pa.needsUpdate = true; oa.needsUpdate = true; sa.needsUpdate = true;
+        wa.needsUpdate = true; ca.needsUpdate = true; aa.needsUpdate = true;
+        this.geo.setDrawRange(0, this.n * 6);
+      }
+    };
+    return api;
+  }
+
+  var traceBuf = makeFatBuffer(900);
   world.add(traceBuf.mesh);
   var traces = [];
 
-  function spawnTrace(path, color, delay, dur, alpha, tail) {
+  function spawnTrace(path, color, delay, dur, alpha, tail, width) {
     if (!path || path.length < 2) return;
     if (traces.length > 24) traces.shift();
     traces.push({ path: path, color: color, t: -(delay || 0), dur: dur || 0.8,
-      alpha: alpha == null ? 0.75 : alpha, tail: tail == null ? 7 : tail });
+      alpha: alpha == null ? 0.75 : alpha, tail: tail == null ? 7 : tail,
+      width: width == null ? 3.0 : width });
   }
 
   function updateTraces(dt) {
@@ -1129,7 +1280,7 @@
         var f = clamp(head - k, 0, 1);
         traceBuf.seg(p0.x, p0.y, p0.z,
           lerp(p0.x, p1.x, f), lerp(p0.y, p1.y, f), lerp(p0.z, p1.z, f),
-          tr.color.r, tr.color.g, tr.color.b, a);
+          tr.color.r, tr.color.g, tr.color.b, a, tr.width * (0.55 + 0.45 * clamp(1 - behind / tr.tail, 0, 1)));
       }
     }
     traceBuf.commit();
@@ -1264,10 +1415,67 @@
   slicePlane.renderOrder = 6;
   world.add(slicePlane);
 
-  var sectionPlane = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 2.8), new THREE.MeshBasicMaterial({
-    color: 0x0b1416, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, fog: false }));
+  /* 剖面切面：解析式矢状断面 —— 灰质带、白质、胼胝体、脑室、基底节。
+     全部在片元着色器里按 vUv 算，不经过纹理，也没有色彩空间损耗。      */
+  var sectionMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
+    uniforms: {
+      uOn: { value: 0.0 },
+      uCortex: { value: new THREE.Color().setRGB(0.30, 0.285, 0.245) },
+      uWhite: { value: new THREE.Color().setRGB(0.68, 0.645, 0.575) },
+      uDeep: { value: new THREE.Color().setRGB(0.145, 0.14, 0.13) }
+    },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: [
+      'varying vec2 vUv;',
+      'uniform float uOn; uniform vec3 uCortex; uniform vec3 uWhite; uniform vec3 uDeep;',
+      'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+      'void main(){',
+      '  vec2 p = vUv * 2.0 - 1.0;',
+      /* 额极朝 +x(u=1)，枕极朝 -x；纵向略压扁，底部再收一点（颅底） */
+      '  float yy = p.y * (1.0 + 0.10 * p.x);',
+      '  float r = length(vec2(p.x * 0.965, yy));',
+      /* 轮廓：椭圆 + 颞叶在下方的鼓包 + 额极略尖 */
+      '  float bump = 0.075 * exp(-pow((p.x - 0.34) / 0.42, 2.0)) * smoothstep(0.15, -1.0, p.y);',
+      '  float rim = 0.955 + bump - 0.020 * smoothstep(0.55, 1.0, p.x);',
+      '  if (r > rim) discard;',
+      /* 灰质带 */
+      '  float band = smoothstep(rim - 0.190, rim - 0.050, r);',
+      '  vec3 col = mix(uWhite, uCortex, band * 0.96);',
+      /* 皮质-白质交界 */
+      '  col = mix(col, vec3(0.94, 0.92, 0.86), smoothstep(0.022, 0.0, abs(r - (rim - 0.190))) * 0.45);',
+      /* 脑沟：沿灰质带的细刻痕 */
+      '  float ang = atan(p.y, p.x);',
+      '  float sul = step(0.55, hash(floor(vec2(ang * 42.0, r * 60.0))));',
+      '  col *= 1.0 - 0.22 * sul * band;',
+      /* 胼胝体：上方一段弧 */
+      '  float cc = abs(length(vec2(p.x * 1.05, (p.y + 0.18) * 1.25)) - 0.50);',
+      '  col = mix(col, vec3(0.95, 0.93, 0.87), smoothstep(0.055, 0.022, cc) * step(0.02, p.y) * 0.92);',
+      /* 穹窿：胼胝体下方细暗线 */
+      '  float fx = abs(length(vec2(p.x * 1.02, (p.y + 0.05) * 1.9)) - 0.44);',
+      '  col = mix(col, uDeep, smoothstep(0.020, 0.006, fx) * step(0.0, p.y) * 0.55);',
+      /* 侧脑室：两条斜缝 */
+      '  float v1 = abs(length(vec2((p.x - 0.16) * 1.35, (p.y + 0.14) * 3.6)) - 0.30);',
+      '  float v2 = abs(length(vec2((p.x + 0.16) * 1.35, (p.y + 0.13) * 3.4)) - 0.28);',
+      '  float vent = max(smoothstep(0.060, 0.030, v1), smoothstep(0.060, 0.030, v2));',
+      '  col = mix(col, uDeep * 1.15, vent * 0.80);',
+      /* 基底节 / 丘脑 */
+      '  float g1 = length(vec2((p.x - 0.10) * 2.1, (p.y + 0.02) * 2.6));',
+      '  float g2 = length(vec2((p.x + 0.14) * 2.3, (p.y + 0.03) * 2.8));',
+      '  col = mix(col, uCortex * 1.10, smoothstep(0.42, 0.20, g1) * 0.55);',
+      '  col = mix(col, uCortex * 1.05, smoothstep(0.38, 0.18, g2) * 0.45);',
+      /* 颗粒 */
+      '  col += (hash(p * 420.0) - 0.5) * 0.035;',
+      '  float alpha = smoothstep(rim, rim - 0.012, r) * uOn;',
+      '  gl_FragColor = vec4(col, alpha * 0.90);',
+      '}'
+    ].join(String.fromCharCode(10))
+  });
+
+  var sectionPlane = new THREE.Mesh(new THREE.PlaneGeometry(BRAIN.AZ * 2.06, BRAIN.AY * 2.02), sectionMat);
   sectionPlane.rotation.y = Math.PI / 2;
   sectionPlane.visible = false;
+  sectionPlane.renderOrder = 1;
   world.add(sectionPlane);
 
   /* ============================== engram layer ============================== */
@@ -2227,7 +2435,7 @@
     sectionClip.constant = c;
     sectionPlane.visible = t > 0.006;
     sectionPlane.position.x = c;
-    sectionPlane.material.opacity = 0.12 + 0.34 * e;
+    sectionMat.uniforms.uOn.value = 0.20 + 0.80 * e;
     /* 切开后收掉内壁的雾状背面，让切面读成一张干净的薄片 */
     matBack.opacity = 0.20 - 0.155 * e;
     if (rimMat && rimMat.uniforms) rimMat.uniforms.uAmt.value = (QUALITY.rim ? 0.16 : 0) * (1 - 0.85 * e);
@@ -2333,7 +2541,7 @@
       var col = new THREE.Color(REGION[h.layer] ? REGION[h.layer].color : '#e6e0d2');
       var path = recallPath(target);
       spawnPulse(path, col, 0.040 + 0.070 * norm, 0.55 + 0.50 * (1 - norm), 0.03 + i * 0.05);
-      spawnTrace(path, col, 0.03 + i * 0.05, 0.52 + 0.46 * (1 - norm), 0.26 + 0.40 * norm, 6 + 6 * norm);
+      spawnTrace(path, col, 0.03 + i * 0.05, 0.52 + 0.46 * (1 - norm), 0.30 + 0.42 * norm, 6 + 6 * norm, 5.5 + 5.0 * norm);
       /* 侧支：沿束从不同高度剥出，越靠后越细越短——不是终点放烟花 */
       var branches = 1 + Math.round(norm * 4);
       var from2 = Math.floor(path.length * 0.52);
@@ -2355,7 +2563,7 @@
         spawnPulse(curvePoints(a0.clone(), end, 0.14, 7), col,
           0.018 + 0.028 * norm * (1 - 0.1 * b), 0.26 + 0.20 * norm, 0.26 + b * 0.045);
         spawnTrace(curvePoints(a0.clone(), end, 0.14, 7), col,
-          0.26 + b * 0.045, 0.24 + 0.18 * norm, 0.24 + 0.30 * norm, 3.4);
+          0.26 + b * 0.045, 0.24 + 0.18 * norm, 0.26 + 0.30 * norm, 3.4, 2.6 + 1.6 * norm);
       }
     });
   }
@@ -2894,6 +3102,8 @@
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     pulseMat.uniforms.uPx.value = (h * renderer.getPixelRatio()) / (2 * Math.tan(TUNING.CAM_FOV * Math.PI / 360));
+    traceBuf.mat.uniforms.uRes.value.set(w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
+    traceBuf.mat.uniforms.uPixelRatio.value = 1;
     /* 竖屏时横向视野更窄：把标本按比例拉远，避免被裁掉两颞侧 */
     var fit = camera.aspect < 1 ? clamp(1.02 / camera.aspect, 1, 1.75) : 1;
     if (Math.abs(fit - num(APP.fit, 1)) > 0.001) {
