@@ -1,0 +1,44 @@
+{
+  "name": "deepseek-brain",
+  "version": "1.0.0",
+  "private": false,
+  "description": "A persistent, inspectable, human-like brain for DeepSeek Harness: five-layer memory (sensory, working, episodic, semantic, procedural) with decay, consolidation, retrieval and visualization.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "files": [
+    "lib",
+    "web",
+    "docs",
+    "dist",
+    "tools",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "build:3d": "node tools/build-3d.mjs",
+    "build:three": "node tools/build-global-three.mjs",
+    "demo": "node tools/demo.mjs"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "memory",
+    "cognitive-architecture",
+    "three.js",
+    "visualization"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

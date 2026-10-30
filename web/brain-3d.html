@@ -1,0 +1,2659 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>DeepSeek 记忆大脑</title>
+<style>
+  html,body{height:100%;overflow:hidden}
+  #app{height:100%}
+  :root{
+    --bg0:#04060d; --bg1:#0b1224; --bg2:#050912;
+    --ink:#dce7ff; --ink-dim:#93a7cf; --ink-faint:#5d6f96;
+    --line:rgba(124,170,255,.16); --line-strong:rgba(124,170,255,.34);
+    --glass:rgba(9,14,28,.72);
+    --glass-solid:rgba(8,12,24,.94);
+    --accent:#7cc6ff;
+    --font: ui-monospace,"Cascadia Mono","SF Mono",Consolas,"Microsoft YaHei",sans-serif;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg0);color:var(--ink);font-family:var(--font);overflow:hidden;overscroll-behavior:none}
+  body{font-size:13px;line-height:1.5;letter-spacing:.01em}
+  button,input,select,output{font-family:inherit;font-size:inherit;color:inherit}
+  #app{position:fixed;inset:0;height:100vh;height:100dvh;width:100vw;overflow:hidden;
+    background:
+      radial-gradient(120% 90% at 50% 12%, #16223f 0%, #0a1122 38%, #05080f 78%, #03050a 100%);
+  }
+  #scene{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+  #scene.grabbing{cursor:grabbing}
+  .hud-vignette{position:absolute;inset:0;pointer-events:none;z-index:2;
+    background:
+      radial-gradient(70% 60% at 50% 42%, transparent 38%, rgba(2,4,9,.55) 100%),
+      repeating-linear-gradient(0deg, rgba(140,180,255,.022) 0 1px, transparent 1px 3px);
+    mix-blend-mode:normal;opacity:.9}
+  #labels{position:absolute;inset:0;pointer-events:none;z-index:6;overflow:hidden}
+  .rlabel{position:absolute;left:0;top:0;display:flex;align-items:center;gap:6px;
+    padding:4px 9px;border-radius:999px;white-space:nowrap;pointer-events:auto;cursor:pointer;
+    background:rgba(5,9,19,.62);border:1px solid rgba(120,160,230,.28);
+    box-shadow:0 6px 22px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.06);
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    font-size:11.5px;letter-spacing:.04em;transition:opacity .18s linear,border-color .2s;
+    will-change:transform,opacity}
+  .rlabel .rdot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 10px currentColor}
+  .rlabel b{font-weight:600;color:#eaf2ff}
+  .rlabel i{font-style:normal;color:var(--ink-dim);font-size:10.5px}
+  .rlabel:hover{border-color:currentColor}
+  .rlabel.is-far{opacity:.34}
+  .rlabel[hidden]{display:none}
+
+  .panel{
+    background:linear-gradient(180deg,rgba(14,21,40,.84),rgba(6,10,20,.86));
+    border:1px solid var(--line);border-radius:var(--radius);
+    box-shadow:0 18px 48px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.045);
+    backdrop-filter:blur(14px) saturate(130%);-webkit-backdrop-filter:blur(14px) saturate(130%);
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar{position:absolute;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;gap:18px;
+    padding:12px 18px;border-bottom:1px solid rgba(124,170,255,.1);
+    background:linear-gradient(180deg,rgba(5,8,16,.86),rgba(5,8,16,.12));
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  .brand{display:flex;align-items:center;gap:10px;min-width:0}
+  .brand-mark{width:26px;height:26px;border-radius:9px;position:relative;flex:0 0 auto;
+    background:radial-gradient(circle at 32% 28%,#8fd3ff,#2b62d8 62%,#12234a);
+    box-shadow:0 0 18px rgba(96,168,255,.55),inset 0 0 10px rgba(255,255,255,.25)}
+  .brand-mark::after{content:"";position:absolute;inset:6px;border-radius:50%;
+    border:1px solid rgba(220,240,255,.7);border-top-color:transparent;border-left-color:transparent;
+    animation:spin 6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .brand em{display:block;font-style:normal;font-size:9.5px;letter-spacing:.28em;color:var(--ink-faint)}
+  .brand b{display:block;font-size:15px;letter-spacing:.14em;font-weight:600}
+  .stats{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+  .stat{display:flex;align-items:baseline;gap:7px;padding:5px 11px;border-radius:9px;
+    border:1px solid rgba(124,170,255,.13);background:rgba(12,19,36,.55)}
+  .stat span{font-size:10px;letter-spacing:.1em;color:var(--ink-faint)}
+  .stat b{font-size:15px;font-weight:600;color:#eaf3ff;font-variant-numeric:tabular-nums}
+  .pills{display:flex;align-items:center;gap:8px}
+  .pill{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;
+    font-size:10.5px;letter-spacing:.06em;border:1px solid rgba(124,170,255,.2);
+    background:rgba(12,19,36,.6);color:var(--ink-dim);white-space:nowrap}
+  .pill i{width:6px;height:6px;border-radius:50%;background:#6b7ea3;box-shadow:0 0 8px currentColor}
+  .pill.ok{color:#7ef0c0;border-color:rgba(70,220,170,.3)}
+  .pill.ok i{background:#43e2ad;color:#43e2ad}
+  .pill.warn{color:#ffd28a;border-color:rgba(255,190,90,.32)}
+  .pill.warn i{background:#ffc46b;color:#ffc46b}
+  .icon-btn{display:none;width:34px;height:34px;border-radius:9px;border:1px solid var(--line);
+    background:rgba(12,19,36,.6);cursor:pointer;align-items:center;justify-content:center;font-size:15px}
+  button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{
+    outline:1px solid var(--accent);outline-offset:2px}
+
+  /* ---------- left layer list ---------- */
+  .side{position:absolute;left:16px;top:80px;width:272px;max-height:calc(100% - 190px);z-index:14;
+    display:flex;flex-direction:column;padding:14px 12px 10px;transition:transform .28s ease,opacity .28s}
+  .side-head{display:flex;align-items:center;justify-content:space-between;padding:0 4px 10px;border-bottom:1px solid rgba(124,170,255,.1);margin-bottom:8px}
+  .side-head h2{margin:0;font-size:11px;letter-spacing:.22em;color:var(--ink-dim);font-weight:500}
+  .ghost-btn{background:none;border:0;color:var(--ink-faint);cursor:pointer;font-size:16px;line-height:1;padding:4px 7px;border-radius:7px}
+  .ghost-btn:hover{color:var(--ink);background:rgba(124,170,255,.1)}
+  #sideClose{display:none}
+  .layer-list{list-style:none;margin:0;padding:0;overflow:auto;flex:1 1 auto;min-height:0}
+  .layer-item{display:grid;grid-template-columns:14px 1fr auto;align-items:center;gap:8px;
+    width:100%;text-align:left;padding:9px 8px;margin-bottom:2px;border:0;border-radius:10px;
+    background:transparent;cursor:pointer;transition:background .16s,border-color .16s;
+    border-left:2px solid transparent}
+  .layer-item:hover{background:rgba(124,170,255,.07)}
+  .layer-item[aria-current="true"]{background:rgba(124,170,255,.11);border-left-color:var(--accent)}
+  .layer-swatch{width:9px;height:9px;border-radius:50%;box-shadow:0 0 12px var(--sw),0 0 3px var(--sw);background:var(--sw)}
+  .layer-name{font-size:12.5px;letter-spacing:.06em;color:#e6eeff}
+  .layer-anatomy{display:block;font-size:10px;color:var(--ink-faint);letter-spacing:.02em;margin-top:1px}
+  .layer-count{font-size:13px;color:var(--ink-dim);font-variant-numeric:tabular-nums}
+  .side-foot{border-top:1px solid rgba(124,170,255,.1);margin-top:8px;padding:8px 4px 0}
+  .note{font-size:9.8px;line-height:1.55;color:var(--ink-faint);margin:4px 0 0;letter-spacing:.01em}
+
+  /* ---------- right detail panel ---------- */
+  .detail{position:absolute;right:16px;top:80px;bottom:96px;width:334px;z-index:16;
+    display:flex;flex-direction:column;padding:16px 16px 10px;
+    transform:translateX(calc(100% + 28px));opacity:0;pointer-events:none;
+    transition:transform .32s cubic-bezier(.22,.7,.2,1),opacity .24s}
+  .detail.open{transform:none;opacity:1;pointer-events:auto}
+  .detail .close{position:absolute;top:10px;right:10px}
+  .detail h3{margin:0;font-size:14px;letter-spacing:.08em;font-weight:600}
+  .detail .anat{margin:4px 0 0;font-size:10.5px;color:var(--ink-faint)}
+  .detail .p-head{border-bottom:1px solid rgba(124,170,255,.12);padding-bottom:11px;margin-bottom:10px}
+  .detail .p-count{display:flex;align-items:baseline;gap:8px;margin-top:8px}
+  .p-count b{font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
+  .p-count span{font-size:10.5px;color:var(--ink-faint)}
+  .mem-list{list-style:none;margin:0;padding:0;overflow:auto;flex:1 1 auto;min-height:0}
+  .mem-row{width:100%;display:block;text-align:left;background:rgba(124,170,255,.035);
+    border:1px solid rgba(124,170,255,.1);border-radius:10px;padding:9px 10px;margin-bottom:6px;
+    cursor:pointer;transition:background .15s,border-color .15s}
+  .mem-row:hover{background:rgba(124,170,255,.1);border-color:rgba(124,170,255,.28)}
+  .mem-row .r1{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .mem-row .t{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;flex:0 0 auto}
+  .mem-row .stars{font-size:10px;color:#ffcc7a;letter-spacing:-.5px;flex:0 0 auto}
+  .mem-row .summary{display:block;font-size:12px;color:#dfe8fb;margin-top:3px;line-height:1.45;
+    overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .mem-row.corrected .summary{text-decoration:line-through;text-decoration-color:rgba(255,140,180,.8)}
+  .bar{position:relative;height:3px;border-radius:2px;background:rgba(140,170,220,.14);margin-top:6px;overflow:hidden}
+  .bar span{position:absolute;inset:0 auto 0 0;border-radius:2px;background:linear-gradient(90deg,var(--bc,#7cc6ff),rgba(255,255,255,.85))}
+  .mem-card{overflow:auto;flex:1 1 auto;min-height:0}
+  .kv{display:grid;grid-template-columns:64px 1fr;gap:6px 10px;margin:10px 0 0;font-size:11.5px}
+  .kv dt{color:var(--ink-faint);letter-spacing:.06em}
+  .kv dd{margin:0;color:#e2ebff;word-break:break-word}
+  .detail-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .primary{background:linear-gradient(180deg,#2e6fe0,#1f4dab);border:1px solid rgba(150,205,255,.5);
+    color:#f2f8ff;padding:7px 14px;border-radius:9px;cursor:pointer;letter-spacing:.06em;
+    box-shadow:0 6px 18px rgba(40,110,230,.35)}
+  .primary:hover{filter:brightness(1.1)}
+  .danger{background:rgba(120,30,60,.5);border:1px solid rgba(255,120,160,.4);color:#ffd7e2;
+    padding:7px 14px;border-radius:9px;cursor:pointer;letter-spacing:.06em}
+  .danger:hover{background:rgba(160,40,80,.6)}
+  .loading{color:var(--ink-faint);font-size:11.5px;padding:14px 2px}
+
+  /* ---------- bottom dock ---------- */
+  .dock{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:18;
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;
+    padding:9px 12px;max-width:calc(100vw - 32px);
+    background:linear-gradient(180deg,rgba(13,20,38,.88),rgba(6,10,20,.9));
+    border:1px solid var(--line);border-radius:999px;
+    box-shadow:0 16px 40px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);
+    backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+  .dock-item{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--ink-dim);letter-spacing:.08em}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:88px;height:3px;border-radius:2px;
+    background:linear-gradient(90deg,rgba(124,198,255,.85),rgba(124,198,255,.2));outline-offset:6px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;
+    background:#cfeeff;border:1px solid #7cc6ff;box-shadow:0 0 10px rgba(120,200,255,.8);cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:12px;height:12px;border:1px solid #7cc6ff;border-radius:50%;
+    background:#cfeeff;box-shadow:0 0 10px rgba(120,200,255,.8);cursor:pointer}
+  .dock output{font-size:10.5px;color:#cfe4ff;font-variant-numeric:tabular-nums;min-width:36px}
+  .toggle{background:rgba(124,170,255,.07);border:1px solid rgba(124,170,255,.2);color:var(--ink-dim);
+    padding:5px 11px;border-radius:999px;cursor:pointer;font-size:10.5px;letter-spacing:.08em;
+    transition:all .16s;white-space:nowrap}
+  .toggle:hover{border-color:rgba(124,170,255,.45);color:#e6f0ff}
+  .toggle[aria-pressed="true"]{background:rgba(90,170,255,.22);border-color:rgba(140,205,255,.55);color:#eaf6ff;
+    box-shadow:0 0 16px rgba(90,170,255,.22)}
+  .hint{font-size:9.8px;color:var(--ink-faint);letter-spacing:.03em;padding-left:4px}
+
+  /* ---------- add-memory sheet ---------- */
+  .sheet{position:absolute;right:16px;bottom:80px;width:352px;z-index:22;padding:16px;
+    display:flex;flex-direction:column;gap:10px;max-height:calc(100% - 120px);overflow:auto}
+  .sheet[hidden]{display:none}
+  .form-head{display:flex;align-items:center;justify-content:space-between}
+  .form-head h3{margin:0;font-size:13px;letter-spacing:.14em;font-weight:600}
+  .field{display:flex;flex-direction:column;gap:4px;font-size:10px;letter-spacing:.1em;color:var(--ink-faint)}
+  .field input[type=text],.field input:not([type]),.field select{
+    background:rgba(4,8,17,.72);border:1px solid rgba(124,170,255,.22);border-radius:8px;
+    padding:7px 9px;color:#eaf2ff;font-size:12px;letter-spacing:.02em;width:100%}
+  .field input::placeholder{color:#4e6084}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .form-foot{display:flex;align-items:center;gap:10px;margin-top:2px}
+  .form-foot .note{margin:0;flex:1 1 auto}
+
+  /* ---------- toast / debug / boot error ---------- */
+  #toast{position:absolute;left:50%;bottom:78px;transform:translate(-50%,12px);z-index:30;
+    padding:7px 14px;border-radius:999px;font-size:11px;letter-spacing:.05em;
+    background:rgba(10,18,34,.94);border:1px solid rgba(130,190,255,.35);color:#dcecff;
+    opacity:0;pointer-events:none;transition:opacity .22s,transform .22s}
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+  #debug{position:absolute;left:16px;bottom:16px;z-index:26;padding:7px 10px;border-radius:9px;
+    font-size:10px;line-height:1.6;color:#9fe3c8;background:rgba(4,10,16,.82);
+    border:1px solid rgba(70,190,150,.28);pointer-events:none;white-space:pre;font-variant-numeric:tabular-nums}
+  #debug[hidden]{display:none}
+  .boot-error{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+    padding:24px;background:rgba(3,5,10,.94)}
+  .boot-error[hidden]{display:none}
+  .boot-error .card{max-width:520px;padding:22px 24px;border-radius:14px;
+    border:1px solid rgba(255,150,120,.35);background:rgba(20,10,14,.9);color:#ffd9cd}
+  .boot-error h2{margin:0 0 8px;font-size:15px;letter-spacing:.1em;color:#ffb59d}
+  .boot-error p{margin:6px 0;font-size:12px;line-height:1.7;color:#e8c9c0}
+  .boot-error code{color:#ffd9a8;background:rgba(255,200,150,.1);padding:1px 5px;border-radius:4px}
+
+  /* ---------- responsive ---------- */
+  @media (max-width:860px){
+    .topbar{padding:8px 10px;gap:8px;flex-wrap:wrap}
+    .brand b{font-size:12.5px;white-space:nowrap;letter-spacing:.08em}
+    .stats{flex-wrap:wrap;gap:5px;justify-content:flex-end}
+    .stat{padding:3px 7px}
+    .topbar .pill{font-size:10px;padding:4px 8px;white-space:nowrap}
+    .brand em{display:none}
+    .stat span{font-size:9px}
+    .stat b{font-size:13px}
+    .icon-btn{display:flex}
+    .side{left:0;top:0;bottom:0;width:250px;max-height:none;border-radius:0;border-left:0;
+      padding:78px 12px 16px;transform:translateX(-102%);opacity:0}
+    .side.open{transform:none;opacity:1}
+    #sideClose{display:block}
+    .side-head{margin-top:2px}
+    .detail{left:8px;right:8px;top:auto;bottom:0;width:auto;max-height:62vh;max-height:62dvh;
+      border-radius:16px 16px 0 0;transform:translateY(calc(100% + 16px));padding-bottom:18px}
+    .detail.open{transform:none}
+    .dock{bottom:8px;max-height:calc(100% - 110px);overflow:auto;border-radius:16px;gap:6px;padding:8px;box-sizing:border-box;
+      width:calc(100vw - 16px);max-width:calc(100vw - 16px);display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));justify-items:stretch}
+    .dock .toggle{font-size:11px;padding:6px 4px;letter-spacing:.02em;width:100%}
+    .dock .dock-item{grid-column:1 / -1;justify-content:center;margin:0 0 2px}
+    .dock .hint{display:none}
+    .hint{display:none}
+    .sheet{left:8px;right:8px;bottom:8px;width:auto}
+    .rlabel{font-size:10.5px;padding:3px 7px}
+    #toast{bottom:auto;top:70px}
+  }
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.06s !important}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="scene" aria-label="三维记忆大脑可视化"></canvas>
+  <div class="hud-vignette" aria-hidden="true"></div>
+  <div id="labels" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div><em>DEEPSEEK MEMORY</em><b>记忆大脑</b></div>
+    </div>
+    <div class="stats" role="group" aria-label="记忆统计">
+      <div class="stat"><span>总记忆数</span><b id="statTotal">—</b></div>
+      <div class="stat"><span>今日新增</span><b id="statToday">—</b></div>
+      <div class="stat"><span>遗忘压缩数</span><b id="statForgotten">—</b></div>
+    </div>
+    <div class="pills">
+      <span class="pill" id="connPill" aria-live="polite"><i></i><span id="connText">初始化</span></span>
+      <button class="icon-btn" id="drawerToggle" aria-label="展开图层列表" aria-expanded="false">☰</button>
+    </div>
+  </header>
+
+  <aside class="side panel" id="sidePanel" aria-label="五层记忆列表">
+    <div class="side-head">
+      <h2>记忆分层</h2>
+      <button class="ghost-btn" id="sideClose" aria-label="收起图层列表">×</button>
+    </div>
+    <ul class="layer-list" id="layerList"></ul>
+    <div class="side-foot">
+      <p class="note">演示数据：20 条核心记忆（12 情景 / 4 语义 / 2 程序 / 2 感觉）+ 3 条工作记忆栈。</p>
+      <p class="note">超过 2000 颗后，同层最弱记忆聚合为一颗「碎屑」，保证帧率。</p>
+    </div>
+  </aside>
+
+  <section class="panel detail" id="regionPanel" aria-label="区域详情" aria-hidden="true">
+    <button class="ghost-btn close" id="panelClose" aria-label="关闭区域详情">×</button>
+    <div id="panelBody" style="display:flex;flex-direction:column;flex:1 1 auto;min-height:0"></div>
+  </section>
+
+  <form class="panel sheet" id="addForm" hidden aria-label="添加记忆">
+    <div class="form-head">
+      <h3>写入新记忆</h3>
+      <button type="button" class="ghost-btn" id="addClose" aria-label="关闭添加面板">×</button>
+    </div>
+    <label class="field">层级
+      <select id="addLayer">
+        <option value="episodic">情景记忆 · 海马体</option>
+        <option value="semantic">语义记忆 · 颞叶外侧</option>
+        <option value="procedural">程序记忆 · 基底节</option>
+      </select>
+    </label>
+    <div class="fields" data-for="episodic">
+      <label class="field">事件<input id="fEvent" type="text" maxlength="80" placeholder="例：和张伟在望京讨论排期"></label>
+      <div class="field-row">
+        <label class="field">参与者<input id="fPeople" type="text" maxlength="60" placeholder="张伟, 李航"></label>
+        <label class="field">地点<input id="fPlace" type="text" maxlength="30" placeholder="望京"></label>
+      </div>
+      <label class="field">情绪<input id="fEmotion" type="text" maxlength="20" placeholder="焦虑 / 平静"></label>
+    </div>
+    <div class="fields" data-for="semantic" hidden>
+      <label class="field">主体<input id="fSubject" type="text" maxlength="30" value="用户"></label>
+      <div class="field-row">
+        <label class="field">关系<input id="fRelation" type="text" maxlength="20" placeholder="职业"></label>
+        <label class="field">客体<input id="fObject" type="text" maxlength="40" placeholder="产品设计师"></label>
+      </div>
+    </div>
+    <div class="fields" data-for="procedural" hidden>
+      <label class="field">规则<input id="fRule" type="text" maxlength="80" placeholder="回答前先给结论"></label>
+    </div>
+    <label class="field">重要度
+      <span style="display:flex;align-items:center;gap:10px">
+        <input type="range" id="fImp" min="1" max="5" step="1" value="3" aria-label="重要度 1 到 5" style="width:120px">
+        <output id="fImpOut" style="color:#ffcc7a;font-size:11px;letter-spacing:1px">★★★☆☆</output>
+      </span>
+    </label>
+    <div class="form-foot">
+      <button type="submit" class="primary">写入脑区</button>
+      <span class="note" id="addNote"></span>
+    </div>
+  </form>
+
+  <footer class="dock" aria-label="视图控制">
+    <label class="dock-item" for="speedRange">转速
+      <input type="range" id="speedRange" min="0" max="2" step="0.05" value="1" aria-label="旋转速度 0 到 2 倍">
+      <output id="speedOut">1.0×</output>
+    </label>
+    <button class="toggle" id="cruiseBtn" aria-pressed="true">自动巡航</button>
+    <button class="toggle" id="demoBtn" aria-pressed="true">演示模式</button>
+    <button class="toggle" id="addBtn" aria-expanded="false">添加记忆</button>
+    <button class="toggle" id="exportBtn">导出 JSON</button>
+    <button class="toggle" id="resetBtn">重置演示</button>
+    <button class="toggle" id="overviewBtn">返回全景</button>
+    <span class="hint">拖动旋转 · 滚轮缩放 · 右键平移 · 单击区域钻取 · Esc 返回</span>
+  </footer>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="debug" hidden></div>
+
+  <div id="bootError" class="boot-error" hidden>
+    <div class="card">
+      <h2>三维内核未加载</h2>
+      <p>页面找不到 <code>window.THREE</code>。渲染依赖同目录下的经典脚本构建：<code>web/vendor/</code> 必须与 <code>brain-3d.html</code> 一起部署。</p>
+      <p>修复方式：在 deepseek-brain 目录执行 <code>pnpm build:3d</code>（或先 <code>pnpm build:three</code> 生成全局构建），并确认 <code>web/vendor/</code> 未被裁剪。</p>
+      <p>若把页面单独拷走，请同时带走整个 <code>web/</code> 目录。当前降级视图不可用。</p>
+    </div>
+  </div>
+</div>
+<script src="./vendor/three.global.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  /* =====================================================================
+     Fairy · 记忆大脑 3D — single-file classic-script app.
+     Loads the classic global build (window.THREE) from ./vendor/.
+     ===================================================================== */
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  var bootError = $('bootError');
+  if (!window.THREE || !window.THREE.Scene) {
+    bootError.hidden = false;
+    return;
+  }
+
+  /* ------------------------------- tunables ------------------------------- */
+  var TUNING = {
+    MAX_PARTICLES: 2000,
+    CAMERA_DISTANCE: 6.45,
+    CAMERA_MIN_DISTANCE: 3.2,
+    CAMERA_MAX_DISTANCE: 16,
+    CAMERA_FOV: 42,
+    CAM_DEFAULT_THETA: 0.68,
+    CAM_DEFAULT_PHI: 1.04,
+    POLAR_MIN: 0.30,
+    POLAR_MAX: 2.55,
+    FLY_MS: 700,
+    ADD_FLIGHT_MS: 900,
+    CLICK_MAX_PX: 6,
+    CLICK_MAX_MS: 350,
+    DRAG_PAUSE_MS: 5000,
+    POLL_MS: 4000,
+    IDLE_SPIN: 0.052,
+    CRUISE_SPIN: 0.17,
+    INERTIA: 0.92,
+    ROTATE_SENS: 0.0055,
+    ZOOM_SENS: 0.0016,
+    PAN_LIMIT: { x: 1.9, y: 1.5, z: 2.0 },
+    REGION_ZOOM: 5.30,
+    HIERARCHY_JITTER: 0.45
+  };
+
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var isMobileSized = Math.min(window.innerWidth, window.innerHeight) < 720;
+  var weakCPU = (navigator.hardwareConcurrency || 8) <= 4;
+  var heavyPixels = dpr * window.innerWidth > 2600;
+  var lowPower = weakCPU || heavyPixels || isMobileSized;
+
+  /* Single switch that controls every cost knob (see QUALITY below). */
+  var QUALITY = {
+    lowPower: lowPower,
+    antialias: !lowPower,
+    pixelRatio: lowPower ? Math.min(dpr, 1.5) : dpr,
+    brainSegments: lowPower ? [104, 78] : [192, 144],
+    wireframe: !lowPower,
+    transmission: !lowPower,
+    stars: lowPower ? 520 : 1100,
+    particleScale: lowPower ? 0.86 : 1.0,
+    transmissionSamples: lowPower ? 0 : 2
+  };
+
+  var REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  /* anchors are fitted to the AX/AY/AZ body in BRAIN: a little inside the pial
+     surface so the marker reads "inside the lobe" through the glass */
+  var REGIONS = [
+    { key: 'sensory', label: '感觉记忆', anatomy: '皮层前端 / 前中央回区', color: '#67e8f9',
+      anchor: [-0.42, 0.86, 1.12], spread: [0.40, 0.28, 0.34], pick: 0.64 },
+    { key: 'working', label: '工作记忆', anatomy: '前额叶', color: '#a78bfa',
+      anchor: [0.48, 0.34, 1.60], spread: [0.32, 0.30, 0.26], pick: 0.60 },
+    { key: 'episodic', label: '情景记忆', anatomy: '海马体（颞叶深部）', color: '#f472b6',
+      anchor: [-0.88, -0.30, 0.14], spread: [0.30, 0.24, 0.40], pick: 0.68 },
+    { key: 'semantic', label: '语义记忆', anatomy: '颞叶外侧皮层', color: '#34d399',
+      anchor: [1.14, -0.40, 0.06], spread: [0.30, 0.34, 0.44], pick: 0.62 },
+    { key: 'procedural', label: '程序记忆', anatomy: '基底节（深部中心）', color: '#fbbf24',
+      anchor: [-0.30, -0.12, -0.28], spread: [0.34, 0.28, 0.34], pick: 0.62 }
+  ];
+  var REGION_MAP = {};
+  REGIONS.forEach(function (r) { REGION_MAP[r.key] = r; });
+
+  /* -------------------------------- helpers -------------------------------- */
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function num(v, d) { var n = typeof v === 'number' ? v : parseFloat(v); return isFinite(n) ? n : d; }
+  function smoothstep(e0, e1, x) {
+    var t = clamp((x - e0) / (e1 - e0), 0, 1);
+    return t * t * (3 - 2 * t);
+  }
+  function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+  function softMax(a, b, k) { return k * Math.log(Math.exp(a / k) + Math.exp(b / k)); }
+
+  function hash3(x, y, z) {
+    var h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(z | 0, 1442695041);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+  function vnoise(x, y, z) {
+    var xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+    var xf = x - xi, yf = y - yi, zf = z - zi;
+    var u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+    var c000 = hash3(xi, yi, zi), c100 = hash3(xi + 1, yi, zi);
+    var c010 = hash3(xi, yi + 1, zi), c110 = hash3(xi + 1, yi + 1, zi);
+    var c001 = hash3(xi, yi, zi + 1), c101 = hash3(xi + 1, yi, zi + 1);
+    var c011 = hash3(xi, yi + 1, zi + 1), c111 = hash3(xi + 1, yi + 1, zi + 1);
+    var x00 = lerp(c000, c100, u), x10 = lerp(c010, c110, u);
+    var x01 = lerp(c001, c101, u), x11 = lerp(c011, c111, u);
+    return lerp(lerp(x00, x10, v), lerp(x01, x11, v), w);
+  }
+  function fbm(x, y, z, oct) {
+    var amp = 0.5, f = 1, sum = 0, norm = 0;
+    for (var i = 0; i < oct; i++) {
+      sum += amp * vnoise(x * f, y * f, z * f);
+      norm += amp; amp *= 0.5; f *= 2.03;
+    }
+    return sum / norm;
+  }
+  function strHash(s) {
+    var h = 2166136261;
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+  function rngFrom(seed) {
+    var s = seed >>> 0;
+    return function () {
+      s = (s + 0x6D2B79F5) >>> 0;
+      var t = s;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  var HOUR = 3600000, DAY = 24 * HOUR;
+  function isoAgo(ms) { return new Date(Date.now() - ms).toISOString(); }
+  function sameLocalDay(a, b) {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  }
+  function fmtTime(ts) {
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '—';
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return (d.getMonth() + 1) + '/' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function stars(importance) {
+    var n = clamp(Math.round(importance), 1, 5), s = '';
+    for (var i = 0; i < 5; i++) s += i < n ? '★' : '☆';
+    return s;
+  }
+  function escapeHTML(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  /* ============================ demo dataset ============================
+     20 core memories (12 episodic / 4 semantic / 4? -> 2 procedural / 2 sensory)
+     plus a 3-entry working stack, per docs/API.md §3.
+     ====================================================================== */
+  function buildDemoState() {
+    var now = Date.now();
+
+    var episodic = [
+      { id: 'demo-ep-1', ts: isoAgo(3 * HOUR), event: '和张伟在望京开会，排期顺延到周五',
+        participants: ['张伟'], place: '望京', emotion: '焦虑', importance: 4, strength: 3.8,
+        detail: '会议最后二十分钟才谈到联调窗口，张伟说后端接口周五上午才能冻结。' },
+      { id: 'demo-ep-2', ts: isoAgo(7 * HOUR), event: '需求评审被卡在第三版支付流程',
+        participants: ['周悦', '李航'], place: '会议室 B', emotion: '烦躁', importance: 5, strength: 4.6,
+        detail: '退款分支没有覆盖优惠券，产品要求明天上午给结论。' },
+      { id: 'demo-ep-3', ts: isoAgo(1 * DAY + 2 * HOUR), event: '楼下咖啡店听周悦讲她换工作的纠结',
+        participants: ['周悦'], place: 'Manner 咖啡', emotion: '平静', importance: 3, strength: 2.7,
+        detail: '她在两家公司之间反复，最后决定先谈薪资再谈方向。' },
+      { id: 'demo-ep-4', ts: isoAgo(1 * DAY + 9 * HOUR), event: '凌晨两点修完登录接口的空指针',
+        participants: [], place: '家', emotion: '疲惫', importance: 4, strength: 3.2,
+        detail: '根因是缓存没失效，token 解析拿到 null，加了一层兜底。' },
+      { id: 'demo-ep-5', ts: isoAgo(2 * DAY + 4 * HOUR), event: '地铁上听到两人争论游戏关卡设计',
+        participants: [], place: '十号线', emotion: '好奇', importance: 2, strength: 1.6,
+        detail: '他们争论引导应该藏在场景里还是直接给箭头。' },
+      { id: 'demo-ep-6', ts: isoAgo(3 * DAY), event: '陪母亲去医院复查，指标稳定',
+        participants: ['母亲'], place: '协和医院', emotion: '安心', importance: 5, strength: 4.4,
+        detail: '医生让三个月后再来，药量减了四分之一。' },
+      { id: 'demo-ep-7', ts: isoAgo(4 * DAY + 5 * HOUR), event: '团队聚餐在簋街，李航讲爬雪山',
+        participants: ['李航', '周悦', '张伟'], place: '簋街', emotion: '放松', importance: 3, strength: 2.4,
+        detail: '他说在海拔五千米第一次觉得“计划”这个词很轻。' },
+      { id: 'demo-ep-8', ts: isoAgo(5 * DAY + 1 * HOUR), event: '收到出版社邮件，书稿进入二审',
+        participants: [], place: '家', emotion: '兴奋', importance: 5, strength: 4.1,
+        detail: '编辑要求把第一章的三个案例换成更近的例子。' },
+      { id: 'demo-ep-9', ts: isoAgo(6 * DAY + 3 * HOUR), event: '第一次跑完十公里，配速 6 分 12',
+        participants: [], place: '奥森公园', emotion: '痛快', importance: 3, strength: 2.1,
+        detail: '最后两公里靠数呼吸撑过去，膝盖没有不适。' },
+      { id: 'demo-ep-10', ts: isoAgo(8 * DAY), event: '把阳台的绿萝搬到窗边，新叶展开了',
+        participants: [], place: '家', emotion: '平静', importance: 1, strength: 1.1,
+        detail: '叶子朝向光的一侧偏了大约三十度。' },
+      { id: 'demo-ep-11', ts: isoAgo(10 * DAY + 6 * HOUR), event: '同学会遇到高中同桌陈默',
+        participants: ['陈默'], place: '三里屯', emotion: '惊讶', importance: 3, strength: 1.9,
+        detail: '他现在做建筑设计，说画图和写代码是同一种耐心。' },
+      { id: 'demo-ep-12', ts: isoAgo(12 * DAY + 2 * HOUR), event: '深夜听播客讲海马体与睡眠',
+        participants: [], place: '家', emotion: '专注', importance: 2, strength: 1.4,
+        detail: '记了三页笔记：睡眠不足会优先削弱情景记忆的检索线索。' }
+    ];
+
+    var semantic = [
+      { id: 'demo-sem-1', ts: isoAgo(9 * DAY), subject: '用户', relation: '职业', object: '产品设计师',
+        status: 'active', importance: 4, strength: 4.2, supersedes: null },
+      { id: 'demo-sem-2', ts: isoAgo(11 * DAY), subject: '张伟', relation: '关系', object: '同事 · 后端负责人',
+        status: 'active', importance: 3, strength: 3.5, supersedes: null },
+      { id: 'demo-sem-3', ts: isoAgo(2 * DAY + 4 * HOUR), subject: '用户', relation: '偏好', object: '回答先给结论再给细节',
+        status: 'corrected', importance: 4, strength: 3.0, supersedes: 'demo-sem-3-old' },
+      { id: 'demo-sem-4', ts: isoAgo(7 * DAY), subject: '望京', relation: '属性', object: '用户常去的办公区',
+        status: 'active', importance: 2, strength: 2.3, supersedes: null }
+    ];
+
+    var procedural = [
+      { id: 'demo-pro-1', ts: isoAgo(13 * DAY), rule: '回答前先给结论，再展开理由', importance: 4, strength: 3.6, hits: 12 },
+      { id: 'demo-pro-2', ts: isoAgo(4 * DAY), rule: '涉及日程时先确认时区与截止时间', importance: 3, strength: 2.4, hits: 5 }
+    ];
+
+    var sensory = [
+      { id: 'demo-sen-1', ts: isoAgo(12 * 60 * 1000), text: '明天下午三点和张伟在望京开会',
+        entities: { people: ['张伟'], times: ['明天下午三点'], numbers: ['三点'], places: ['望京'], urls: [], emotions: [] },
+        attended: true, expiresAt: new Date(now + 45 * 1000).toISOString() },
+      { id: 'demo-sen-2', ts: isoAgo(40 * 1000), text: '屏幕上闪过的报错：ECONNRESET at fetchState',
+        entities: { people: [], times: [], numbers: [], places: [], urls: [], emotions: ['警觉'] },
+        attended: false, expiresAt: new Date(now + 15 * 1000).toISOString() }
+    ];
+
+    var working = {
+      capacity: 7,
+      stack: [
+        { id: 'demo-wk-1', title: '项目排期：周五联调窗口', ts: isoAgo(50 * 60 * 1000), strength: 3.4, importance: 4 },
+        { id: 'demo-wk-2', title: '支付流程第三版待收敛', ts: isoAgo(2 * HOUR), strength: 2.9, importance: 4 },
+        { id: 'demo-wk-3', title: '书稿二审意见对照表', ts: isoAgo(5 * HOUR), strength: 2.4, importance: 3 }
+      ]
+    };
+
+    var today = new Date();
+    var addedToday = episodic.concat(semantic, procedural, sensory, working.stack).filter(function (r) {
+      return sameLocalDay(new Date(r.ts), today);
+    }).length;
+
+    return {
+      ok: true,
+      generatedAt: new Date(now).toISOString(),
+      lambda: 0.05,
+      stats: {
+        total: episodic.length + semantic.length + procedural.length + sensory.length + working.stack.length,
+        addedToday: addedToday,
+        forgotten: 7,
+        consolidated: 2,
+        activeTopics: ['项目排期', '书稿二审'],
+        layers: {
+          sensory: sensory.length, working: working.stack.length, episodic: episodic.length,
+          semantic: semantic.length, procedural: procedural.length
+        }
+      },
+      sensory: sensory,
+      working: working,
+      episodic: episodic,
+      semantic: semantic,
+      procedural: procedural
+    };
+  }
+
+  /* ------------------------------ model layer ------------------------------ */
+  function normalizeRecord(region, raw, index) {
+    var ts = raw.ts || new Date().toISOString();
+    var importance = clamp(Math.round(num(raw.importance, 3)), 1, 5);
+    var title = '', sub = '', strength = 0, status = 'active', detail = '';
+
+    if (region === 'episodic') {
+      title = raw.event || '未命名事件';
+      sub = [(raw.participants || []).join('、'), raw.place, raw.emotion].filter(Boolean).join(' · ');
+      strength = num(raw.strength, importance * 0.7);
+      detail = raw.detail || '';
+    } else if (region === 'semantic') {
+      title = (raw.subject || '?') + ' · ' + (raw.relation || '?') + ' → ' + (raw.object || '?');
+      status = raw.status === 'corrected' ? 'corrected' : 'active';
+      strength = num(raw.strength, importance * 0.65);
+      sub = status === 'corrected' ? '三元组已修正 · 旧值失效' : '语义三元组';
+    } else if (region === 'procedural') {
+      title = raw.rule || '未命名规则';
+      strength = num(raw.strength, 2.2);
+      sub = '命中 ' + num(raw.hits, 0) + ' 次';
+    } else if (region === 'working') {
+      title = raw.title || raw.text || '工作记忆片段';
+      strength = num(raw.strength, 3.0);
+      sub = '工作栈 · 容量有限';
+    } else {
+      title = raw.text || '瞬时输入';
+      strength = num(raw.strength, raw.attended === false ? 1.3 : 2.2);
+      sub = raw.attended === false ? '未注意 · 即将挥发' : '已注意 · 转瞬即逝';
+    }
+
+    return {
+      id: String(raw.id || ('tmp-' + region + '-' + index)),
+      region: region, raw: raw, ts: ts, title: title, sub: sub,
+      importance: importance, strength: clamp(strength, 0, 5),
+      status: status, detail: detail
+    };
+  }
+
+  function buildModel(raw, source) {
+    var layers = { sensory: [], working: [], episodic: [], semantic: [], procedural: [] };
+    function absorb(region, arr) {
+      (arr || []).forEach(function (rec, i) {
+        if (rec && rec.id) layers[region].push(normalizeRecord(region, rec, i));
+      });
+    }
+    absorb('sensory', raw.sensory);
+    absorb('working', raw.working && raw.working.stack);
+    absorb('episodic', raw.episodic);
+    absorb('semantic', raw.semantic);
+    absorb('procedural', raw.procedural);
+
+    var counts = {}, total = 0;
+    Object.keys(layers).forEach(function (k) { counts[k] = layers[k].length; total += layers[k].length; });
+
+    var today = new Date();
+    var addedToday = 0;
+    Object.keys(layers).forEach(function (k) {
+      layers[k].forEach(function (m) { if (sameLocalDay(new Date(m.ts), today)) addedToday++; });
+    });
+
+    var stats = raw.stats || {};
+    var regions = {};
+    REGIONS.forEach(function (r) {
+      regions[r.key] = {
+        label: r.label, anatomy: r.anatomy, color: r.color,
+        count: counts[r.key] || 0
+      };
+    });
+
+    return {
+      layers: layers,
+      stats: {
+        total: total,
+        addedToday: num(stats.addedToday, addedToday),
+        forgotten: num(stats.forgotten, 0),
+        consolidated: num(stats.consolidated, 0),
+        activeTopics: Array.isArray(stats.activeTopics) ? stats.activeTopics : []
+      },
+      regions: regions,
+      lambda: num(raw.lambda, 0.05),
+      generatedAt: raw.generatedAt || new Date().toISOString(),
+      source: source || 'demo'
+    };
+  }
+
+  /* ----------------------------- three.js core ----------------------------- */
+  var canvas = $('scene');
+  var renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({
+      canvas: canvas, antialias: QUALITY.antialias, alpha: false,
+      powerPreference: 'high-performance', stencil: false
+    });
+  } catch (err) {
+    bootError.hidden = false;
+    bootError.querySelector('h2').textContent = '无法创建 WebGL 上下文';
+    return;
+  }
+  renderer.setPixelRatio(QUALITY.pixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.96;
+  renderer.setClearColor(0x04060d, 1);
+
+  var scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x04070f, 0.035);
+
+  var camera = new THREE.PerspectiveCamera(TUNING.CAMERA_FOV, 1, 0.1, 220);
+
+  /* lights */
+  scene.add(new THREE.AmbientLight(0x2c4270, 0.55));
+  var keyLight = new THREE.DirectionalLight(0xdfeaff, 2.0);
+  keyLight.position.set(5.5, 7.5, 6.5);
+  scene.add(keyLight);
+  var rimLight = new THREE.DirectionalLight(0x3f74ff, 1.45);
+  rimLight.position.set(-7, -1.5, -6);
+  scene.add(rimLight);
+  var fillLight = new THREE.DirectionalLight(0x2a4c8f, 0.85);
+  fillLight.position.set(-3, -6, 4);
+  scene.add(fillLight);
+  var innerLight = new THREE.PointLight(0x5a8cff, 2.0, 8, 2);
+  innerLight.position.set(0, 0.1, 0.2);
+  scene.add(innerLight);
+
+  /* ----------------------------- glow texture ----------------------------- */
+  var glowTexture = (function () {
+    var c = document.createElement('canvas');
+    c.width = c.height = 128;
+    var g = c.getContext('2d');
+    var grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, 'rgba(255,255,255,0.95)');
+    grd.addColorStop(0.22, 'rgba(255,255,255,0.42)');
+    grd.addColorStop(0.55, 'rgba(255,255,255,0.11)');
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
+    var tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    return tex;
+  })();
+
+  /* ---------------------------- brain geometry ----------------------------
+     Two mirrored CLOSED shells. Each shell is still a full sphere, but every
+     direction medial of the sagittal rim is folded onto a flat wall by a
+     softMax clamp on the lateral axis — so the pair leaves a real, continuous
+     longitudinal fissure while both meshes stay watertight (no boundary edges,
+     nothing to see through).
+     Shape: ellipsoid 1 : 1.12 : 1.60 (w : h : l) with a slightly squared
+     crown, flat ventral base, low-lateral temporal bulge and tapered poles.
+     Gyri come from TWO domain-warped plane-band fields (marbled phase in the
+     position domain): each field is a set of nearly parallel sheets warped by
+     two octaves of value noise, so the iso-lines become long connected sulci
+     that meander, merge and branch. A low-frequency mask decides which field
+     dominates where, which kills the regular grid look. Fixed landmarks add
+     the central sulcus and the Sylvian fissure.
+     ----------------------------------------------------------------------- */
+  var BRAIN = { AX: 1.24, AY: 1.35, AZ: 2.04 };
+
+  function shapePoint(nx, ny, nz, side) {
+    var AX = BRAIN.AX, AY = BRAIN.AY, AZ = BRAIN.AZ;
+    var front = smoothstep(-0.05, 1.0, nz);
+    var back = smoothstep(0.05, 1.0, -nz);
+
+    /* ---- base ellipsoid, tapered at both poles ---- */
+    var xl = nx * AX * (1 - 0.22 * back * back) * (1 - 0.15 * front * front);
+    var y = ny * AY * (1 - 0.22 * back * back * back) * (1 - 0.08 * front * front);
+    var zl = nz * AZ;
+
+    /* ---- squared-off crown / rounder shoulders ---- */
+    y *= 1 - 0.125 * Math.pow(Math.abs(ny), 3.4);
+    zl *= 1 - 0.055 * Math.pow(Math.abs(nz), 3.4);
+
+    /* ---- flat ventral base, lifted at the occipital end (tentorial notch) ---- */
+    var baseY = -AY * 0.82 + 0.40 * smoothstep(-0.34, -0.84, nz) + 0.07 * smoothstep(0.45, 0.95, nz);
+    y = softMax(y, baseY, 0.10);
+
+    /* ---- temporal lobe: low-lateral bulge over the front two thirds ---- */
+    var tlZ = Math.exp(-Math.pow((nz - 0.06) / 0.56, 2));
+    var tlY = Math.exp(-Math.pow((ny + 0.50) / 0.32, 2));
+    var tl = tlZ * tlY * smoothstep(-0.05, 0.45, nx);
+    xl += 0.22 * tl;
+    y -= 0.15 * tl;
+
+    /* ---- sagittal fold: everything medial of the rim lands on the wall ---- */
+    var gapHalf = lerp(0.006, 0.086 + 0.030 * smoothstep(0.05, 0.85, nz), smoothstep(-0.70, 0.70, ny));
+    var foldK = lerp(0.048, 0.082, smoothstep(-0.45, 0.60, ny));
+    var seam = softMax(xl, gapHalf, foldK);
+
+    /* ---- paramedian fissure: a narrow V slot right beside the wall, with the
+       cortex rising into a crest a little further lateral — that crest/slot/
+       crest triplet is what makes two hemispheres readable from any angle ---- */
+    var fyMask = Math.max(smoothstep(-0.50, 0.42, ny), 0.9 * smoothstep(0.10, 0.85, nz)) *
+                 (1 - 0.55 * back * back);
+    var dip = 0.30 * Math.exp(-Math.pow(seam / 0.17, 2)) * fyMask;
+    var crest = 0.055 * Math.exp(-Math.pow((seam - 0.40) / 0.24, 2)) * fyMask;
+    y -= dip;
+    y += crest;
+
+    var med = smoothstep(-0.02, -0.15, nx);   /* 1 = flat sagittal wall */
+
+    /* ---- gyral band field ----
+       Two families of tilted sheets whose normals live in the y-z plane, so
+       neither family can close into rings around the lateral pole — on the
+       lateral face they read as long front-to-back / transverse gyri. Each
+       family gets its own 2-3 octave warp, large enough that the sheets stop
+       being straight: they meander, pinch off and merge into a maze. */
+    var seed = side > 0 ? 0 : 217.3;
+    var wA = fbm(xl * 0.90 + seed + 2.7, y * 0.90 + 5.1, zl * 0.70 + 1.3, 3) - 0.5;
+    var wB = fbm(xl * 0.82 + 7.9, y * 0.82 + seed * 0.27 + 3.3, zl * 0.64 + 9.1, 3) - 0.5;
+    var wC = fbm(xl * 1.90 + 21.3, y * 1.90 + seed * 0.13 + 1.1, zl * 1.55 + 4.9, 2) - 0.5;
+
+    var phaseA = zl * 22.0 + y * 11.0 + wA * 19.5 + wC * 3.4 + 1.7;
+    var phaseB = y * 19.0 - zl * 7.0 + wB * 19.0 + wC * 3.4 + 4.3;
+    var sulA = Math.pow(0.5 - 0.5 * Math.cos(phaseA), 5.0);
+    var sulB = Math.pow(0.5 - 0.5 * Math.cos(phaseB), 5.0);
+
+    /* large-scale mask: one family leans dominant in each patch, so no regular grid */
+    var patch = smoothstep(0.34, 0.66, fbm(xl * 0.50 + 11.7, y * 0.50 + 2.3 + seed, zl * 0.38 + 8.1, 2));
+    var sul = sulA * (0.78 + 0.42 * (1 - patch)) + sulB * (0.78 + 0.42 * patch);
+    var sul2 = Math.pow(0.5 - 0.5 * Math.cos(phaseA * 1.9 + phaseB * 0.7 + wC * 9.0 + 2.4), 7.0);
+
+    /* ---- fixed landmarks ---- */
+    var latM = smoothstep(0.30, 0.86, seam / AX);                  /* lateral face only */
+    var sylvY = -0.44 + 0.16 * smoothstep(-0.9, 0.9, nz) - 0.10 * (seam / AX);
+    var syl = Math.exp(-Math.pow((y - sylvY) / 0.090, 2)) * latM *
+              smoothstep(-1.30, -0.95, zl) * smoothstep(1.15, 0.75, zl);
+    var csZ = 0.30 - 0.34 * (seam / AX);
+    var cs = Math.exp(-Math.pow((zl - csZ) / 0.085, 2)) *
+             smoothstep(-0.10, 0.35, seam / AX) * smoothstep(1.35, 0.95, zl);
+
+    /* ~0.10 - 0.15 world units peak-to-trough on the main sulci, damped on the
+       ventral base so the flat underside stays flat */
+    var ventral = 1 - 0.45 * smoothstep(-AY * 0.66, -AY * 0.94, y);
+    var groove = (0.092 * sul + 0.030 * sul2 + 0.078 * cs + 0.115 * syl) *
+                 (1 - 0.94 * med) * ventral;
+
+    var gx = seam / (AX * AX), gy = y / (AY * AY), gz = zl / (AZ * AZ);
+    var gk = Math.sqrt(gx * gx + gy * gy + gz * gz) || 1;
+    var disp = 0.012 * (1 - sul) - groove;
+    var ox = seam + (gx / gk) * disp;
+    var oy = y + (gy / gk) * disp;
+    var oz = zl + (gz / gk) * disp;
+
+    var deep = clamp(groove / 0.125, 0, 1);
+    var shade = clamp(1.0 - 0.97 * Math.pow(deep, 1.05) + 0.14 * (1 - deep), 0.02, 1);
+    /* the superior margin of each hemisphere catches the light: two bright
+       edges flanking the dark fissure make the split unmistakable */
+    var margin = Math.exp(-Math.pow((seam - 0.115) / 0.085, 2)) * smoothstep(0.05, 0.55, ny);
+    shade = clamp(shade + 0.42 * margin, 0.02, 1);
+    shade *= 1 - 0.93 * med;   /* the sagittal wall stays dark: the fissure reads as a crevice */
+
+    return {
+      x: ox, y: oy, z: oz,
+      color: [lerp(0.02, 0.72, shade), lerp(0.035, 0.84, shade), lerp(0.11, 1.0, shade)],
+      shade: shade
+    };
+  }
+
+  function buildHemisphereGeometry(side, segW, segH) {
+    var geo = new THREE.SphereGeometry(1, segW, segH);
+    var pos = geo.attributes.position;
+    var colors = new Float32Array(pos.count * 3);
+    var v = new THREE.Vector3();
+    var i;
+    for (i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).normalize();
+      /* both sides are shaped from the mirrored direction, then mirrored back */
+      var p = shapePoint(side > 0 ? v.x : -v.x, v.y, v.z, side);
+      pos.setXYZ(i, side > 0 ? p.x : -p.x, p.y, p.z);
+      colors[i * 3] = p.color[0];
+      colors[i * 3 + 1] = p.color[1];
+      colors[i * 3 + 2] = p.color[2];
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    if (side < 0 && geo.index) {
+      /* mirroring x reverses the winding: flip it back so normals point outward */
+      var idx = geo.index.array;
+      for (i = 0; i < idx.length; i += 3) {
+        var t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t;
+      }
+      geo.index.needsUpdate = true;
+    }
+    geo.computeVertexNormals();
+    geo.computeBoundingSphere();
+    return geo;
+  }
+
+  var brainGroup = new THREE.Group();
+  scene.add(brainGroup);
+
+  function makeCortexMaterial() {
+    if (QUALITY.transmission) {
+      return new THREE.MeshPhysicalMaterial({
+        color: 0xa8bcf2, roughness: 0.46, metalness: 0.10,
+        transmission: 0.30, thickness: 1.2, ior: 1.32,
+        clearcoat: 0.35, clearcoatRoughness: 0.40,
+        attenuationColor: new THREE.Color(0x8fb4ff), attenuationDistance: 3.4,
+        emissive: 0x1a2c5e, emissiveIntensity: 0.34,
+        vertexColors: true, side: THREE.FrontSide,
+        envMapIntensity: 0.9
+      });
+    }
+    return new THREE.MeshStandardMaterial({
+      color: 0xc2d2ff, roughness: 0.44, metalness: 0.12,
+      transparent: true, opacity: 0.62,
+      emissive: 0x1a2c5e, emissiveIntensity: 0.42,
+      vertexColors: true, side: THREE.FrontSide
+    });
+  }
+
+  /* fresnel rim: additive shell on the same geometry, depth-offset toward the
+     camera, so the silhouette keeps a bright edge without washing the cortex */
+  var rimMaterial = (QUALITY.transmission || QUALITY.wireframe) ? new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(0x9fccff) },
+      uPower: { value: 2.5 },
+      uIntensity: { value: 0.95 }
+    },
+    vertexShader: [
+      'varying vec3 vN;',
+      'varying vec3 vV;',
+      'void main() {',
+      '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+      '  vN = normalize(normalMatrix * normal);',
+      '  vV = normalize(-mv.xyz);',
+      '  gl_Position = projectionMatrix * mv;',
+      '}'
+    ].join('\n'),
+    fragmentShader: [
+      'uniform vec3 uColor;',
+      'uniform float uPower;',
+      'uniform float uIntensity;',
+      'varying vec3 vN;',
+      'varying vec3 vV;',
+      'void main() {',
+      '  float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));',
+      '  f = pow(clamp(f, 0.0, 1.0), uPower);',
+      '  gl_FragColor = vec4(uColor * f * uIntensity, f);',
+      '}'
+    ].join('\n'),
+    transparent: true, depthWrite: false, depthTest: true, side: THREE.FrontSide,
+    blending: THREE.AdditiveBlending,
+    polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3
+  }) : null;
+
+  var cortexMaterial = makeCortexMaterial();
+  var hemisphereMeshes = [];
+  (function buildHemispheres() {
+    var seg = QUALITY.brainSegments;
+    [-1, 1].forEach(function (side) {
+      var geo = buildHemisphereGeometry(side, seg[0], seg[1]);
+      var mesh = new THREE.Mesh(geo, cortexMaterial);
+      brainGroup.add(mesh);
+      hemisphereMeshes.push(mesh);
+
+      if (rimMaterial) {
+        var rim = new THREE.Mesh(geo, rimMaterial);
+        rim.renderOrder = 2;
+        brainGroup.add(rim);
+      }
+
+      if (QUALITY.wireframe) {
+        var wireGeo = buildHemisphereGeometry(side, 52, 38);
+        var wire = new THREE.Mesh(wireGeo, new THREE.MeshBasicMaterial({
+          color: 0x9dc0ff, wireframe: true, transparent: true, opacity: 0.035, depthWrite: false
+        }));
+        wire.renderOrder = 1;
+        brainGroup.add(wire);
+      }
+    });
+  })();
+
+  /* inner additive core: gives depth behind the glass surface */
+  (function buildCore() {
+    /* small emissive nucleus — refracted by the glass shell, never a hard ball silhouette */
+    var coreGeo = new THREE.SphereGeometry(1, 28, 20);
+    var coreB = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({
+      color: 0x5b8cff, blending: THREE.AdditiveBlending, transparent: false, depthWrite: false
+    }));
+    coreB.renderOrder = -2;
+    coreB.scale.set(0.42, 0.30, 0.50);
+    coreB.position.set(0.04, 0.04, 0.10);
+    /* nucleus kept dim: a hard ball through the glass reads as an artefact */
+    coreB.scale.setScalar(0.001);
+    brainGroup.add(coreB);
+
+    /* soft inner haze — glow texture keeps the falloff edge-free */
+    var hazeA = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: 0x2c58c8, blending: THREE.AdditiveBlending,
+      transparent: true, depthWrite: false, depthTest: false, opacity: 0.042
+    }));
+    hazeA.scale.set(2.35, 1.85, 1);
+    hazeA.position.set(0, 0.04, 0.05);
+    brainGroup.add(hazeA);
+
+    var hazeB = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: 0x79a6ff, blending: THREE.AdditiveBlending,
+      transparent: true, depthWrite: false, depthTest: false, opacity: 0.030
+    }));
+    hazeB.scale.set(1.15, 0.92, 1);
+    hazeB.position.set(0.05, 0.05, 0.12);
+    brainGroup.add(hazeB);
+  })();
+
+  /* cerebellum — decorative, not clickable */
+  (function buildCerebellum() {
+    var seg = QUALITY.lowPower ? [40, 28] : [64, 44];
+    var geo = new THREE.SphereGeometry(1, seg[0], seg[1]);
+    var pos = geo.attributes.position;
+    var v = new THREE.Vector3();
+    var colors = new Float32Array(pos.count * 3);
+    for (var i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).normalize();
+      /* fine horizontal folia */
+      var folia = Math.sin(v.y * 26 + v.z * 3.2 + v.x * 1.6) * 0.5 + 0.5;
+      var wob = fbm(v.x * 7 + 3, v.y * 7 + 9, v.z * 7 + 1, 2);
+      var d = 0.058 * Math.pow(folia, 1.7) + 0.020 * (wob * 2 - 1);
+      var sx = 0.63, sy = 0.35, sz = 0.45;
+      var x = v.x * sx * (1 + d), y = v.y * sy * (1 + d), z = v.z * sz * (1 + d);
+      pos.setXYZ(i, x, y, z);
+      var sh = 0.14 + 0.86 * Math.pow(folia, 0.75);
+      colors[i * 3] = lerp(0.16, 0.72, sh);
+      colors[i * 3 + 1] = lerp(0.20, 0.82, sh);
+      colors[i * 3 + 2] = lerp(0.34, 0.98, sh);
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+    var mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      color: 0x9fb2d6, roughness: 0.55, metalness: 0.08,
+      vertexColors: true, emissive: 0x141f3a, emissiveIntensity: 0.5,
+      transparent: true, opacity: 0.94
+    }));
+    mesh.position.set(0, -0.80, -1.30);
+    mesh.rotation.x = -0.10;
+    brainGroup.add(mesh);
+  })();
+
+  /* brainstem — short cone, decorative */
+  (function buildStem() {
+    var geo = new THREE.CylinderGeometry(0.10, 0.16, 0.64, 18, 4, false);
+    var mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+      color: 0x8ea3c8, roughness: 0.6, metalness: 0.08,
+      emissive: 0x101a2e, emissiveIntensity: 0.6, transparent: true, opacity: 0.95
+    }));
+    mesh.position.set(0, -0.94, -0.98);
+    mesh.rotation.x = 0.30;
+    brainGroup.add(mesh);
+  })();
+
+  /* ------------------------------ environment ------------------------------ */
+  (function buildEnvironment() {
+    /* nebula wash behind the brain */
+    var neb = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: 0x1b3f8f, blending: THREE.AdditiveBlending,
+      transparent: true, depthWrite: false, opacity: 0.40
+    }));
+    neb.scale.set(26, 20, 1);
+    neb.position.set(0, 0.4, -9);
+    scene.add(neb);
+
+    /* floor glow + grid suggestion */
+    var floorGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: 0x2b4c9a, blending: THREE.AdditiveBlending,
+      transparent: true, depthWrite: false, opacity: 0.24
+    }));
+    floorGlow.scale.set(16, 5, 1);
+    floorGlow.position.set(0, -1.75, -0.6);
+    scene.add(floorGlow);
+
+    var grid = new THREE.GridHelper(26, 34, 0x2f5fa8, 0x1b3050);
+    grid.position.y = -1.78;
+    grid.material.transparent = true;
+    grid.material.opacity = 0.16;
+    grid.material.depthWrite = false;
+    scene.add(grid);
+
+    /* stars */
+    var count = QUALITY.stars;
+    var positions = new Float32Array(count * 3);
+    var sizes = new Float32Array(count);
+    var rnd = rngFrom(20260211);
+    for (var i = 0; i < count; i++) {
+      var r = 26 + rnd() * 34;
+      var theta = rnd() * Math.PI * 2;
+      var phi = Math.acos(2 * rnd() - 1);
+      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.cos(phi) * 0.7;
+      positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+      sizes[i] = 0.6 + rnd() * 1.5;
+    }
+    var starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    starGeo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+    var starMat = new THREE.PointsMaterial({
+      color: 0x9fc4ff, size: 0.13, sizeAttenuation: true,
+      transparent: true, opacity: 0.55, depthWrite: false,
+      blending: THREE.AdditiveBlending, map: glowTexture
+    });
+    var starField = new THREE.Points(starGeo, starMat);
+    starField.frustumCulled = false;
+    scene.add(starField);
+  })();
+
+  /* ============================ memory particles ============================ */
+  var CAP = TUNING.MAX_PARTICLES + 24;
+  var pPositions = new Float32Array(CAP * 3);
+  var pSizes = new Float32Array(CAP);
+  var pColors = new Float32Array(CAP * 3);
+  var pGlow = new Float32Array(CAP);
+  var pShape = new Float32Array(CAP);
+
+  var particleGeometry = new THREE.BufferGeometry();
+  particleGeometry.setAttribute('position', new THREE.BufferAttribute(pPositions, 3).setUsage(THREE.DynamicDrawUsage));
+  particleGeometry.setAttribute('aSize', new THREE.BufferAttribute(pSizes, 1).setUsage(THREE.DynamicDrawUsage));
+  particleGeometry.setAttribute('aColor', new THREE.BufferAttribute(pColors, 3).setUsage(THREE.DynamicDrawUsage));
+  particleGeometry.setAttribute('aGlow', new THREE.BufferAttribute(pGlow, 1).setUsage(THREE.DynamicDrawUsage));
+  particleGeometry.setAttribute('aShape', new THREE.BufferAttribute(pShape, 1).setUsage(THREE.DynamicDrawUsage));
+  particleGeometry.setDrawRange(0, 0);
+  particleGeometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 6);
+
+  var particleUniforms = {
+    uTime: { value: 0 },
+    uPixelRatio: { value: QUALITY.pixelRatio },
+    uScale: { value: QUALITY.particleScale }
+  };
+
+  var particleMaterial = new THREE.ShaderMaterial({
+    uniforms: particleUniforms,
+    vertexShader: [
+      'attribute float aSize;',
+      'attribute vec3 aColor;',
+      'attribute float aGlow;',
+      'attribute float aShape;',
+      'uniform float uPixelRatio;',
+      'uniform float uScale;',
+      'varying vec3 vColor;',
+      'varying float vGlow;',
+      'varying float vShape;',
+      'void main() {',
+      '  vColor = aColor; vGlow = aGlow; vShape = aShape;',
+      '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+      '  float dist = max(0.8, -mv.z);',
+      '  gl_PointSize = clamp(aSize * (330.0 / dist) * uPixelRatio * uScale, 2.0, 96.0);',
+      '  gl_Position = projectionMatrix * mv;',
+      '}'
+    ].join('\n'),
+    fragmentShader: [
+      'uniform float uTime;',
+      'varying vec3 vColor;',
+      'varying float vGlow;',
+      'varying float vShape;',
+      'void main() {',
+      '  vec2 uv = gl_PointCoord - vec2(0.5);',
+      '  float d = length(uv);',
+      '  if (d > 0.5) discard;',
+      '  float core = smoothstep(0.5, 0.05, d);',
+      '  float a = pow(core, 1.45) * 0.92 + smoothstep(0.22, 0.0, d) * 0.72;',
+      '  if (vShape > 0.5) {',
+      '    float ring = smoothstep(0.50, 0.40, d) * smoothstep(0.16, 0.31, d);',
+      '    a = ring * 1.05 + pow(core, 2.0) * 0.22;',
+      '  }',
+      '  float pulse = 0.90 + 0.10 * sin(uTime * 1.6 + vGlow * 6.2831);',
+      '  vec3 col = vColor * (0.95 + 2.30 * vGlow);',
+      '  gl_FragColor = vec4(col, clamp(a, 0.0, 1.0) * clamp(0.30 + 0.85 * vGlow, 0.0, 1.0) * pulse);',
+      '}'
+    ].join('\n'),
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,      /* interior particles stay visible through the glass cortex */
+    blending: THREE.AdditiveBlending
+  });
+
+  var particlePoints = new THREE.Points(particleGeometry, particleMaterial);
+  particlePoints.frustumCulled = false;
+  particlePoints.renderOrder = 3;
+  scene.add(particlePoints);
+
+  var entries = [];        /* visual particles, index === buffer slot */
+  var entryById = Object.create(null);
+  var particleDirty = true;
+  var particleAnimCount = 0;
+
+  var _c = new THREE.Color();
+
+  function particleColor(regionKey, strength, importance, out) {
+    _c.set(REGION_MAP[regionKey].color);
+    var fade = 0.28 + 0.72 * Math.pow(clamp(strength, 0, 5) / 5, 0.75);
+    var grey = 0.74 + 0.26 * Math.pow(clamp(strength, 0, 5) / 5, 0.6);
+    var boost = 0.72 + 0.38 * (clamp(importance, 1, 5) / 5);
+    out[0] = _c.r * grey * boost;
+    out[1] = _c.g * grey * boost;
+    out[2] = _c.b * grey * boost;
+    return fade;
+  }
+
+  var _colorTmp = [0, 0, 0];
+
+  function jitteredPosition(regionKey, id, out) {
+    var r = REGION_MAP[regionKey];
+    var rnd = rngFrom(strHash(id) ^ 0x9e3779b9);
+    var u = rnd(), v = rnd(), w = rnd();
+    var theta = u * Math.PI * 2;
+    var phi = Math.acos(2 * v - 1);
+    var rad = Math.cbrt(w);
+    var sp = r.spread;
+    out[0] = r.anchor[0] + Math.cos(theta) * Math.sin(phi) * rad * sp[0];
+    out[1] = r.anchor[1] + Math.cos(phi) * rad * sp[1];
+    out[2] = r.anchor[2] + Math.sin(theta) * Math.sin(phi) * rad * sp[2];
+    return out;
+  }
+
+  function describeMemories(model) {
+    var out = [];
+    var limit = TUNING.MAX_PARTICLES;
+    var bucket = [];
+    REGIONS.forEach(function (r) {
+      (model.layers[r.key] || []).forEach(function (m) {
+        bucket.push(m);
+      });
+    });
+    bucket.sort(function (a, b) {
+      return (b.strength * b.importance) - (a.strength * a.importance);
+    });
+    var kept = bucket.slice(0, limit);
+    var overflow = bucket.slice(limit);
+    var crumbCount = Object.create(null);
+
+    kept.forEach(function (m) {
+      var pos = jitteredPosition(m.region, m.id, [0, 0, 0]);
+      var fade = particleColor(m.region, m.strength, m.importance, _colorTmp);
+      var imp = clamp(m.importance, 1, 5) / 5;
+      out.push({
+        id: m.id, region: m.region, x: pos[0], y: pos[1], z: pos[2],
+        size: (0.40 + 0.62 * imp) * (0.62 + 0.38 * fade),
+        glow: (0.52 + 0.48 * imp) * (0.40 + 0.60 * fade),
+        r: _colorTmp[0], g: _colorTmp[1], b: _colorTmp[2],
+        shape: (m.region === 'semantic' && m.status === 'corrected') ? 1 : 0
+      });
+    });
+
+    overflow.forEach(function (m) { crumbCount[m.region] = (crumbCount[m.region] || 0) + 1; });
+
+    REGIONS.forEach(function (r) {
+      var n = crumbCount[r.key];
+      if (!n) return;
+      var pos = jitteredPosition(r.key, 'crumb-' + r.key, [0, 0, 0]);
+      var col = new THREE.Color(r.color);
+      var k = 0.55;
+      out.push({
+        id: 'crumb:' + r.key, region: r.key, x: pos[0], y: pos[1], z: pos[2],
+        size: 1.5 + Math.min(1.1, Math.log1p(n) * 0.22),
+        glow: 0.30, r: col.r * k, g: col.g * k, b: col.b * k,
+        shape: 1, crumb: true, crumbCount: n
+      });
+    });
+    return out;
+  }
+
+  function createEntry(desc) {
+    var e = {
+      id: desc.id, region: desc.region, x: desc.x, y: desc.y, z: desc.z,
+      baseSize: desc.size, baseGlow: desc.glow, r: desc.r, g: desc.g, b: desc.b,
+      shape: desc.shape, crumb: !!desc.crumb,
+      scale: 1, anim: 'in', t: 0, dur: 0.42
+    };
+    entryById[desc.id] = e;
+    entries.push(e);
+    particleAnimCount++;
+    return e;
+  }
+
+  function syncParticles(model, animate) {
+    var desired = describeMemories(model);
+    var nextById = Object.create(null);
+    var next = [];
+    var now = performance.now() / 1000;
+    var i, e;
+
+    for (i = 0; i < desired.length; i++) {
+      var d = desired[i];
+      e = entryById[d.id];
+      if (e) {
+        e.x = d.x; e.y = d.y; e.z = d.z;
+        e.baseSize = d.size; e.baseGlow = d.glow;
+        e.r = d.r; e.g = d.g; e.b = d.b;
+        e.shape = d.shape; e.crumb = !!d.crumb;
+        if (e.anim === 'out') { e.anim = 'in'; e.t = 1 - e.t; e.dur = 0.32; }
+        if (e.scale < 0.999 && e.anim !== 'in') { e.anim = 'in'; e.t = 0; e.dur = 0.32; }
+      } else {
+        e = createEntry(d);
+        if (!animate) { e.anim = 'idle'; e.scale = 1; e.t = 1; particleAnimCount--; }
+        else { e.startedAt = now; }
+      }
+      next.push(e);
+      nextById[d.id] = e;
+    }
+
+    /* vanished: animate out, then drop (hard drop when animate === false) */
+    for (i = 0; i < entries.length; i++) {
+      var old = entries[i];
+      if (nextById[old.id]) continue;
+      if (!animate) continue;
+      if (old.anim !== 'out') {
+        old.anim = 'out'; old.t = 0; old.dur = 0.38;
+        particleAnimCount++;
+      }
+      next.push(old);
+    }
+
+    entries = next;
+    entryById = nextById;
+    particleDirty = true;
+    updateRegionHalos(model);
+    return desired.length;
+  }
+
+  function updateParticleAnimations(dt) {
+    if (!particleAnimCount) return false;
+    var active = 0;
+    var keep = [];
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i];
+      if (e.anim === 'idle') { keep.push(e); continue; }
+      e.t += dt / Math.max(0.05, e.dur);
+      if (e.anim === 'in') {
+        if (e.t >= 1) { e.t = 1; e.scale = 1; e.anim = 'idle'; }
+        else {
+          /* easeOutBack pop */
+          var p = e.t, c1 = 1.70158, c3 = c1 + 1;
+          e.scale = 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
+          active++;
+        }
+      } else if (e.anim === 'out') {
+        if (e.t >= 1) continue;  /* drop */
+        e.scale = clamp(1 - e.t, 0, 1);
+        active++;
+      }
+      keep.push(e);
+    }
+    entries = keep;
+    particleAnimCount = active;
+    particleDirty = true;
+    return true;
+  }
+
+  function writeParticles() {
+    if (!particleDirty) return;
+    var n = Math.min(entries.length, CAP);
+    for (var i = 0; i < n; i++) {
+      var e = entries[i];
+      var s = e.scale;
+      var flash = (e.anim === 'out') ? (1 + 1.7 * (1 - e.t)) : (s < 0.999 ? 1 + 0.9 * (1 - s) : 1);
+      pPositions[i * 3] = e.x;
+      pPositions[i * 3 + 1] = e.y;
+      pPositions[i * 3 + 2] = e.z;
+      pSizes[i] = e.baseSize * (s < 0.02 ? 0.02 : s);
+      pColors[i * 3] = e.r;
+      pColors[i * 3 + 1] = e.g;
+      pColors[i * 3 + 2] = e.b;
+      pGlow[i] = clamp(e.baseGlow * flash, 0, 1.6);
+      pShape[i] = e.shape;
+    }
+    particleGeometry.setDrawRange(0, n);
+    particleGeometry.attributes.position.needsUpdate = true;
+    particleGeometry.attributes.aSize.needsUpdate = true;
+    particleGeometry.attributes.aColor.needsUpdate = true;
+    particleGeometry.attributes.aGlow.needsUpdate = true;
+    particleGeometry.attributes.aShape.needsUpdate = true;
+    particleDirty = false;
+  }
+
+  /* ============================== region markers ============================== */
+  var markers = [];
+  var pickTargets = [];
+  var labelItems = [];
+  var labelLayer = $('labels');
+
+  function buildMarkers() {
+    REGIONS.forEach(function (r, i) {
+      var color = new THREE.Color(r.color);
+      var group = new THREE.Group();
+      group.position.set(r.anchor[0], r.anchor[1], r.anchor[2]);
+
+      var regionHalo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTexture, color: color, blending: THREE.AdditiveBlending,
+        transparent: true, depthWrite: false, depthTest: false, opacity: 0.16
+      }));
+      regionHalo.scale.set(1.5, 1.5, 1);
+      group.add(regionHalo);
+
+      var halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTexture, color: color, blending: THREE.AdditiveBlending,
+        transparent: true, depthWrite: false, depthTest: false, opacity: 0.55
+      }));
+      halo.scale.set(0.42, 0.42, 1);
+      group.add(halo);
+
+      var orb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.058, 18, 14),
+        new THREE.MeshBasicMaterial({
+          color: color, transparent: true, opacity: 0.95,
+          blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false
+        })
+      );
+      group.add(orb);
+
+      var ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.112, 0.132, 44),
+        new THREE.MeshBasicMaterial({
+          color: color, transparent: true, opacity: 0.5, side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false
+        })
+      );
+      group.add(ring);
+      brainGroup.add(group);
+
+      /* invisible pick proxy — never the 24k-triangle cortex */
+      var picker = new THREE.Mesh(
+        new THREE.SphereGeometry(r.pick, 10, 8),
+        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false })
+      );
+      picker.position.copy(group.position);
+      picker.userData.region = r.key;
+      picker.renderOrder = -1;
+      brainGroup.add(picker);
+      pickTargets.push(picker);
+
+      var el = document.createElement('div');
+      el.className = 'rlabel';
+      el.style.color = r.color;
+      el.innerHTML = '<span class="rdot"></span><b>' + escapeHTML(r.label) + '</b><i>0 条</i>';
+      el.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        selectRegion(r.key);
+      });
+      labelLayer.appendChild(el);
+
+      markers.push({
+        region: r, group: group, orb: orb, ring: ring, halo: halo,
+        regionHalo: regionHalo, baseColor: color
+      });
+      labelItems.push({ region: r, el: el, countEl: el.querySelector('i'), w: 96, opacity: 1 });
+    });
+  }
+
+  function updateRegionHalos(model) {
+    var maxCount = 1;
+    REGIONS.forEach(function (r) { maxCount = Math.max(maxCount, model.regions[r.key].count); });
+    markers.forEach(function (m) {
+      var c = model.regions[m.region.key].count;
+      var t = Math.log1p(c) / Math.log1p(Math.max(8, maxCount));
+      var scale = 0.95 + 1.05 * t;
+      m.regionHalo.scale.set(scale, scale, 1);
+      m.regionHalo.material.opacity = 0.040 + 0.145 * t;
+      m.halo.material.opacity = 0.34 + 0.42 * t;
+      m.ring.material.opacity = 0.32 + 0.30 * t;
+    });
+    labelItems.forEach(function (item) {
+      item.countEl.textContent = model.regions[item.region.key].count + ' 条';
+    });
+  }
+
+  /* ============================== camera control ============================== */
+  var cam = {
+    theta: TUNING.CAM_DEFAULT_THETA,
+    phi: TUNING.CAM_DEFAULT_PHI,
+    radius: TUNING.CAMERA_DISTANCE,
+    target: new THREE.Vector3(0, 0, 0)
+  };
+  var camVel = { theta: 0, phi: 0 };
+  var flight = null;
+  var lastDragAt = -1e9;
+  var clockStart = performance.now();
+
+  var camScale = 1;
+  var _v1 = new THREE.Vector3();
+  var _v2 = new THREE.Vector3();
+  var _v3 = new THREE.Vector3();
+
+  function clampTarget(t) {
+    t.x = clamp(t.x, -TUNING.PAN_LIMIT.x, TUNING.PAN_LIMIT.x);
+    t.y = clamp(t.y, -TUNING.PAN_LIMIT.y, TUNING.PAN_LIMIT.y);
+    t.z = clamp(t.z, -TUNING.PAN_LIMIT.z, TUNING.PAN_LIMIT.z);
+  }
+
+  /* keeps the 4-unit brain inside a portrait viewport without touching zoom logic */
+  function autoFitScale() {
+    var w = canvas.clientWidth || window.innerWidth;
+    var h = canvas.clientHeight || window.innerHeight;
+    var aspect = Math.max(0.3, w / Math.max(1, h));
+    var halfFov = camera.fov * Math.PI / 360;
+    var needed = 1.86 / (Math.tan(halfFov) * aspect);
+    return clamp(needed / TUNING.CAMERA_DISTANCE, 1, 2.1);
+  }
+
+  function applyCamera() {
+    var sp = Math.sin(cam.phi), cp = Math.cos(cam.phi);
+    var dist = cam.radius * camScale;
+    camera.position.set(
+      cam.target.x + dist * sp * Math.sin(cam.theta),
+      cam.target.y + dist * cp,
+      cam.target.z + dist * sp * Math.cos(cam.theta)
+    );
+    if (camera.position.distanceToSquared(cam.target) < 0.04) {
+      camera.position.y += 0.25;
+    }
+    camera.up.set(0, 1, 0);
+    camera.lookAt(cam.target);
+    camera.updateMatrixWorld();
+  }
+
+  function wrapAngle(a) {
+    while (a > Math.PI) a -= Math.PI * 2;
+    while (a < -Math.PI) a += Math.PI * 2;
+    return a;
+  }
+
+  function flyTo(opts) {
+    var toTheta = (typeof opts.theta === 'number') ? opts.theta : cam.theta;
+    var toPhi = clamp((typeof opts.phi === 'number') ? opts.phi : cam.phi, TUNING.POLAR_MIN, TUNING.POLAR_MAX);
+    var toRadius = clamp(opts.radius || cam.radius, TUNING.CAMERA_MIN_DISTANCE, TUNING.CAMERA_MAX_DISTANCE);
+    var toTarget = opts.target || _v3.set(0, 0, 0);
+    var ms = opts.ms || TUNING.FLY_MS;
+
+    if (REDUCED) {
+      cam.theta = cam.theta + wrapAngle(toTheta - cam.theta);
+      cam.phi = toPhi;
+      cam.radius = toRadius;
+      cam.target.copy(toTarget);
+      camVel.theta = camVel.phi = 0;
+      flight = null;
+      applyCamera();
+      return;
+    }
+
+    flight = {
+      t: 0, dur: ms / 1000,
+      fromTheta: cam.theta, fromPhi: cam.phi, fromRadius: cam.radius,
+      fromTarget: cam.target.clone(),
+      dTheta: wrapAngle(toTheta - cam.theta),
+      toPhi: toPhi, toRadius: toRadius,
+      toTarget: toTarget.clone()
+    };
+    camVel.theta = camVel.phi = 0;
+  }
+
+  function updateCamera(dt, nowSec) {
+    if (flight) {
+      flight.t += dt / flight.dur;
+      if (flight.t >= 1) flight.t = 1;
+      var k = easeInOutCubic(flight.t);
+      cam.theta = flight.fromTheta + flight.dTheta * k;
+      cam.phi = lerp(flight.fromPhi, flight.toPhi, k);
+      cam.radius = lerp(flight.fromRadius, flight.toRadius, k);
+      cam.target.lerpVectors(flight.fromTarget, flight.toTarget, k);
+      if (flight.t >= 1) flight = null;
+      applyCamera();
+      return;
+    }
+
+    var idle = (performance.now() - lastDragAt) > TUNING.DRAG_PAUSE_MS;
+    if (idle && !REDUCED) {
+      var base = APP.cruise ? TUNING.CRUISE_SPIN : TUNING.IDLE_SPIN;
+      cam.theta += base * APP.speed * dt;
+      if (APP.cruise) cam.phi = clamp(cam.phi + Math.sin(nowSec * 0.24) * 0.0016 * APP.speed, TUNING.POLAR_MIN, TUNING.POLAR_MAX);
+    }
+
+    if (Math.abs(camVel.theta) > 1e-5 || Math.abs(camVel.phi) > 1e-5) {
+      cam.theta += camVel.theta * dt;
+      cam.phi = clamp(cam.phi + camVel.phi * dt, TUNING.POLAR_MIN, TUNING.POLAR_MAX);
+      var damp = Math.pow(TUNING.INERTIA, dt * 60);
+      camVel.theta *= damp;
+      camVel.phi *= damp;
+      if (Math.abs(camVel.theta) < 1e-4) camVel.theta = 0;
+      if (Math.abs(camVel.phi) < 1e-4) camVel.phi = 0;
+    }
+    applyCamera();
+  }
+
+  /* ------------------------------- pick / fly ------------------------------- */
+  var raycaster = new THREE.Raycaster();
+  var ndc = new THREE.Vector2();
+
+  function pickRegionAt(clientX, clientY) {
+    var rect = canvas.getBoundingClientRect();
+    ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(ndc, camera);
+    var hits = raycaster.intersectObjects(pickTargets, false);
+    return hits.length ? hits[0].object.userData.region : null;
+  }
+
+  function defaultView(ms) {
+    flyTo({
+      theta: TUNING.CAM_DEFAULT_THETA,
+      phi: TUNING.CAM_DEFAULT_PHI,
+      radius: TUNING.CAMERA_DISTANCE,
+      target: _v1.set(0, 0, 0),
+      ms: ms || TUNING.FLY_MS
+    });
+  }
+
+  /* ================================ interaction ================================ */
+  var pointers = new Map();
+  var drag = {
+    active: false, panning: false, moved: 0, downT: 0,
+    lastX: 0, lastY: 0, pinchDist: 0, centroidX: 0, centroidY: 0, downX: 0, downY: 0
+  };
+
+  function pointerCentroidDist() {
+    var it = pointers.values();
+    var a = it.next().value, b = it.next().value;
+    if (!a || !b) return { dist: 0, cx: 0, cy: 0 };
+    var dx = a.x - b.x, dy = a.y - b.y;
+    return { dist: Math.sqrt(dx * dx + dy * dy), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+  }
+
+  function panCamera(dx, dy) {
+    var scale = cam.radius * 0.0017;
+    _v1.setFromMatrixColumn(camera.matrix, 0);
+    _v2.setFromMatrixColumn(camera.matrix, 1);
+    cam.target.addScaledVector(_v1, -dx * scale);
+    cam.target.addScaledVector(_v2, dy * scale);
+    clampTarget(cam.target);
+  }
+
+  function onPointerDown(ev) {
+    if (ev.button === 2) ev.preventDefault();
+    pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    try { canvas.setPointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+
+    if (pointers.size === 1) {
+      drag.active = true;
+      drag.panning = (ev.button === 2 || ev.button === 1);
+      drag.moved = 0;
+      drag.downT = performance.now();
+      drag.downX = ev.clientX; drag.downY = ev.clientY;
+      drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+      canvas.classList.add('grabbing');
+    } else if (pointers.size === 2) {
+      var pd = pointerCentroidDist();
+      drag.pinchDist = pd.dist;
+      drag.centroidX = pd.cx; drag.centroidY = pd.cy;
+      drag.active = false;
+      drag.moved = 999;
+    }
+  }
+
+  function onPointerMove(ev) {
+    if (!pointers.has(ev.pointerId)) return;
+    pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    lastDragAt = performance.now();
+
+    if (pointers.size >= 2) {
+      var pd = pointerCentroidDist();
+      if (drag.pinchDist > 0 && pd.dist > 0) {
+        var f = drag.pinchDist / pd.dist;
+        cam.radius = clamp(cam.radius * f, TUNING.CAMERA_MIN_DISTANCE, TUNING.CAMERA_MAX_DISTANCE);
+      }
+      panCamera(pd.cx - drag.centroidX, pd.cy - drag.centroidY);
+      drag.pinchDist = pd.dist;
+      drag.centroidX = pd.cx; drag.centroidY = pd.cy;
+      flight = null;
+      return;
+    }
+
+    if (!drag.active) return;
+    var dx = ev.clientX - drag.lastX;
+    var dy = ev.clientY - drag.lastY;
+    drag.lastX = ev.clientX; drag.lastY = ev.clientY;
+    drag.moved += Math.abs(dx) + Math.abs(dy);
+    flight = null;
+
+    if (drag.panning) {
+      panCamera(dx, dy);
+    } else {
+      cam.theta -= dx * TUNING.ROTATE_SENS;
+      cam.phi = clamp(cam.phi - dy * TUNING.ROTATE_SENS, TUNING.POLAR_MIN, TUNING.POLAR_MAX);
+      camVel.theta = -dx * TUNING.ROTATE_SENS * 34;
+      camVel.phi = -dy * TUNING.ROTATE_SENS * 34;
+      camVel.phi = clamp(camVel.phi, -1.4, 1.4);
+    }
+  }
+
+  function endPointer(ev) {
+    var wasSingle = pointers.size === 1;
+    pointers.delete(ev.pointerId);
+    try { canvas.releasePointerCapture(ev.pointerId); } catch (err) { /* ignore */ }
+    canvas.classList.remove('grabbing');
+
+    if (wasSingle && drag.active) {
+      var dt = performance.now() - drag.downT;
+      var dist = Math.abs(ev.clientX - drag.downX) + Math.abs(ev.clientY - drag.downY);
+      drag.active = false;
+      if (ev.type === 'pointerup' && dist < TUNING.CLICK_MAX_PX && dt < TUNING.CLICK_MAX_MS) {
+        camVel.theta = camVel.phi = 0;
+        var hit = pickRegionAt(ev.clientX, ev.clientY);
+        if (hit) selectRegion(hit);
+        else { closeRegionPanel(); defaultView(); }
+      }
+    }
+    if (pointers.size === 1) {
+      var rest = pointers.values().next().value;
+      drag.active = true;
+      drag.panning = false;
+      drag.moved = 999;
+      drag.downT = performance.now();
+      drag.downX = rest.x; drag.downY = rest.y;
+      drag.lastX = rest.x; drag.lastY = rest.y;
+    }
+    if (pointers.size === 0) {
+      drag.pinchDist = 0;
+      drag.active = false;
+    }
+  }
+
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove);
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+  canvas.addEventListener('wheel', function (ev) {
+    ev.preventDefault();
+    lastDragAt = performance.now();
+    flight = null;
+    var d = ev.deltaY * (ev.deltaMode === 1 ? 18 : 1);
+    cam.radius = clamp(cam.radius * Math.exp(d * TUNING.ZOOM_SENS), TUNING.CAMERA_MIN_DISTANCE, TUNING.CAMERA_MAX_DISTANCE);
+  }, { passive: false });
+
+  /* ------------------------------ add-flight tween ------------------------------ */
+  var flights = [];
+
+  function screenToWorldInFront(clientX, clientY, depth) {
+    var rect = canvas.getBoundingClientRect();
+    _v1.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1, 0.5);
+    _v1.unproject(camera);
+    _v1.sub(camera.position).normalize();
+    return camera.position.clone().addScaledVector(_v1, depth || 3.0);
+  }
+
+  function spawnAddFlight(clientX, clientY, regionKey, onArrive) {
+    var from = screenToWorldInFront(clientX, clientY, 3.0);
+    var r = REGION_MAP[regionKey];
+    var to = new THREE.Vector3(r.anchor[0], r.anchor[1], r.anchor[2]);
+    var ctrl = from.clone().lerp(to, 0.5);
+    ctrl.y += 0.9;
+    ctrl.x += (from.x - to.x) * 0.18;
+
+    var sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture, color: new THREE.Color(r.color),
+      blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.95
+    }));
+    sprite.scale.set(0.42, 0.42, 1);
+    scene.add(sprite);
+
+    var dur = REDUCED ? 0.12 : TUNING.ADD_FLIGHT_MS / 1000;
+    flights.push({
+      sprite: sprite, from: from, ctrl: ctrl, to: to, t: 0, dur: dur, onDone: onArrive
+    });
+  }
+
+  function updateFlights(dt) {
+    for (var i = flights.length - 1; i >= 0; i--) {
+      var f = flights[i];
+      f.t += dt / f.dur;
+      var t = Math.min(1, f.t);
+      var k = easeInOutCubic(t);
+      var inv = 1 - k;
+      var p = f.sprite.position;
+      p.set(
+        inv * inv * f.from.x + 2 * inv * k * f.ctrl.x + k * k * f.to.x,
+        inv * inv * f.from.y + 2 * inv * k * f.ctrl.y + k * k * f.to.y,
+        inv * inv * f.from.z + 2 * inv * k * f.ctrl.z + k * k * f.to.z
+      );
+      var s = 0.36 + 0.22 * Math.sin(t * Math.PI);
+      f.sprite.scale.set(s, s, 1);
+      f.sprite.material.opacity = 0.95 * (1 - Math.pow(t, 6) * 0.4);
+      if (f.t >= 1) {
+        scene.remove(f.sprite);
+        f.sprite.material.dispose();
+        flights.splice(i, 1);
+        if (f.onDone) f.onDone();
+      }
+    }
+  }
+
+  /* ------------------------------ label projection ------------------------------ */
+  var _lp = new THREE.Vector3();
+  var _lc = new THREE.Vector3();
+  var _ln = new THREE.Vector3();
+  var _lcen = new THREE.Vector3();
+
+  function farSideFactor(anchor) {
+    _ln.set(anchor[0], anchor[1], anchor[2]).normalize();
+    _lc.copy(camera.position).normalize();
+    return _ln.dot(_lc);
+  }
+
+  var panelOpenFlag = false;
+  var labelMeasureTick = 0;
+  /* candidate offsets (px) tried in order: anchor, then a ring of 8, then a wider ring */
+  var LABEL_DIRS = [
+    [0, 0], [0, -1], [0, 1], [1, 0], [-1, 0],
+    [0.72, -0.72], [-0.72, -0.72], [0.72, 0.72], [-0.72, 0.72], [0, -1]
+  ];
+  var LABEL_RADII = [0, 30, 58];
+
+  function _rectFree(x, y, w, h, list) {
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (x < r.x + r.w && x + w > r.x && y < r.y + r.h && y + h > r.y) return false;
+    }
+    return true;
+  }
+
+  function updateLabels(nowSec) {
+    var w = canvas.clientWidth || window.innerWidth;
+    var h = canvas.clientHeight || window.innerHeight;
+    var wide = w >= 860;
+    var leftInset = wide ? 292 : 12;
+    var rightInset = wide && panelOpenFlag ? 400 : 14;
+    var topInset = 84;
+    var bottomInset = 100;
+    var placed = [];
+    var order = [];
+    var i, item;
+
+    /* screen centre of the model: labels are nudged radially off the cortex */
+    _lcen.set(0, 0, 0).project(camera);
+    var ccx = (_lcen.x * 0.5 + 0.5) * w;
+    var ccy = (-_lcen.y * 0.5 + 0.5) * h;
+    /* while a region is focused only its own chip stays, so the zoomed view is not a pile of labels */
+    var focusKey = APP.selected || null;
+
+    for (i = 0; i < labelItems.length; i++) {
+      item = labelItems[i];
+      var a = item.region.anchor;
+      _lp.set(a[0], a[1], a[2]).project(camera);
+      var facing = farSideFactor(a);
+      /* deep structures (basal ganglia, hippocampus) have no far side — they are
+         seen *through* the glass, so only cortical anchors are culled */
+      var deepAnchor = Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]) < 1.05;
+      if (_lp.z > 1 || (facing < -0.94 && !deepAnchor) || (focusKey && item.region.key !== focusKey)) {
+        item.el.hidden = true;
+        item.vis = 0;
+        continue;
+      }
+      item.el.hidden = false;
+      item.vis = clamp((facing + 0.94) / 1.10, 0, 1);
+      if (deepAnchor) item.vis = Math.max(item.vis, 0.62);
+      item.sx = (_lp.x * 0.5 + 0.5) * w;
+      item.sy = (-_lp.y * 0.5 + 0.5) * h;
+      var dx = item.sx - ccx, dy = item.sy - ccy;
+      var dl = Math.sqrt(dx * dx + dy * dy);
+      if (dl > 1) {
+        /* lift the chip off the gyri into the dark surround — same direction, small offset */
+        item.sx += (dx / dl) * 26;
+        item.sy += (dy / dl) * 22;
+      }
+      item.z = _lp.z;
+      order.push(item);
+    }
+
+    /* re-measure label widths occasionally (hidden labels report 0 when measured at sync time) */
+    labelMeasureTick++;
+    if (labelMeasureTick % 30 === 0) {
+      for (i = 0; i < order.length; i++) {
+        var mw = order[i].el.offsetWidth;
+        if (mw) order[i].w = mw;
+      }
+    }
+
+    order.sort(function (p, q) { return p.sy - q.sy; });
+
+    for (i = 0; i < order.length; i++) {
+      item = order[i];
+      var bw = item.w || 96;
+      var bh = 26;
+      var lo = leftInset + bw * 0.5;
+      var hi = Math.max(lo, w - rightInset - bw * 0.5);
+      var bx = clamp(item.sx, lo, hi);
+      var by = clamp(item.sy, topInset + bh * 0.5, h - bottomInset - bh * 0.5);
+      var cx = bx, cy = by, ok = false, k, d;
+      for (k = 0; k < LABEL_RADII.length && !ok; k++) {
+        for (d = 0; d < LABEL_DIRS.length; d++) {
+          var ox = bx + LABEL_DIRS[d][0] * LABEL_RADII[k];
+          var oy = by + LABEL_DIRS[d][1] * LABEL_RADII[k];
+          if (ox - bw * 0.5 < leftInset || ox + bw * 0.5 > w - rightInset) continue;
+          if (oy - bh * 0.5 < topInset || oy + bh * 0.5 > h - bottomInset) continue;
+          if (!_rectFree(ox - bw * 0.5, oy - bh * 0.5, bw, bh, placed)) continue;
+          cx = ox; cy = oy; ok = true; break;
+        }
+      }
+      /* no free slot at all: swallow the chip rather than stack it on a neighbour */
+      if (!ok) {
+        item.el.hidden = true;
+        item.vis = 0;
+        continue;
+      }
+      placed.push({ x: cx - bw * 0.5, y: cy - bh * 0.5, w: bw, h: bh });
+      item.el.style.transform = 'translate3d(' + (cx | 0) + 'px,' + (cy | 0) + 'px,0) translate(-50%,-50%)';
+      item.el.style.opacity = (0.62 + 0.38 * item.vis).toFixed(3);
+      item.el.classList.toggle('is-far', item.vis < 0.45);
+      item.el.style.zIndex = '' + (10 + Math.round((1 - item.z) * 4));
+    }
+
+    for (var m = 0; m < markers.length; m++) {
+      var mk = markers[m];
+      var f = farSideFactor(mk.region.anchor);
+      var kk = clamp((f + 0.55) / 0.75, 0, 1);
+      mk.orb.material.opacity = 0.40 + 0.60 * kk;
+      mk.halo.material.opacity = (0.16 + 0.30 * kk) * (0.72 + 0.28 * Math.sin(nowSec * 1.7 + m));
+      mk.regionHalo.material.opacity *= 1;
+    }
+  }
+
+  /* ================================== app state ================================== */
+  var APP = {
+    model: null,
+    demoMode: false,
+    online: false,
+    speed: 1,
+    cruise: true,
+    selected: null,
+    selectedMemory: null,
+    bootedAt: performance.now(),
+    fileMode: location.protocol === 'file:'
+  };
+
+  var API_BASE = '.';
+  (function resolveApiBase() {
+    var q = null;
+    try { q = new URLSearchParams(location.search); } catch (err) { q = null; }
+    var raw = q ? q.get('api') : null;
+    if (raw) {
+      var cleaned = raw.replace(/\/+$/, '');
+      if (!/^[a-z]+:\/\//i.test(cleaned)) {
+        cleaned = 'http' + '://' + cleaned.replace(/^\/+/, '');
+      }
+      API_BASE = cleaned;
+      APP.fileMode = false;
+    } else if (APP.fileMode) {
+      API_BASE = '';
+    }
+  })();
+
+  var demoModel = null;
+  function freshDemoModel() { return buildModel(buildDemoState(), 'demo'); }
+
+  /* ------------------------------- DOM handles ------------------------------- */
+  var elStatTotal = $('statTotal');
+  var elStatToday = $('statToday');
+  var elStatForgotten = $('statForgotten');
+  var elConn = $('connPill');
+  var elConnText = $('connText');
+  var elLayerList = $('layerList');
+  var elRegionPanel = $('regionPanel');
+  var elPanelBody = $('panelBody');
+  var elAddForm = $('addForm');
+  var elToast = $('toast');
+  var elDebug = $('debug');
+  var elSpeed = $('speedRange');
+  var elSpeedOut = $('speedOut');
+  var elCruise = $('cruiseBtn');
+  var elDemo = $('demoBtn');
+  var elAddBtn = $('addBtn');
+  var elSide = $('sidePanel');
+  var elDrawer = $('drawerToggle');
+
+  var panelSig = '';
+  var toastTimer = 0;
+
+  function toast(msg) {
+    elToast.textContent = msg;
+    elToast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { elToast.classList.remove('show'); }, 2100);
+  }
+
+  function setConn(kind, text) {
+    elConn.className = 'pill' + (kind === 'ok' ? ' ok' : (kind === 'warn' ? ' warn' : ''));
+    elConnText.textContent = text;
+  }
+
+  /* -------------------------------- rendering -------------------------------- */
+  function renderStats(model) {
+    var s = model.stats;
+    elStatTotal.textContent = String(s.total);
+    elStatToday.textContent = String(s.addedToday);
+    elStatForgotten.textContent = String(s.forgotten);
+  }
+
+  function renderLayerList(model) {
+    if (!elLayerList.firstChild) {
+      REGIONS.forEach(function (r) {
+        var li = document.createElement('li');
+        var btn = document.createElement('button');
+        btn.className = 'layer-item';
+        btn.type = 'button';
+        btn.dataset.region = r.key;
+        btn.setAttribute('aria-label', r.label + ' · ' + r.anatomy);
+        btn.innerHTML =
+          '<span class="layer-swatch" style="--sw:' + r.color + '"></span>' +
+          '<span><span class="layer-name">' + escapeHTML(r.label) + '</span>' +
+          '<span class="layer-anatomy">' + escapeHTML(r.anatomy) + '</span></span>' +
+          '<span class="layer-count" data-count="' + r.key + '">0</span>';
+        btn.addEventListener('click', function () {
+          selectRegion(r.key);
+          closeDrawer();
+        });
+        li.appendChild(btn);
+        elLayerList.appendChild(li);
+      });
+    }
+    REGIONS.forEach(function (r) {
+      var span = elLayerList.querySelector('[data-count="' + r.key + '"]');
+      if (span) span.textContent = String(model.regions[r.key].count);
+      var row = elLayerList.querySelector('[data-region="' + r.key + '"]');
+      if (row) row.setAttribute('aria-current', APP.selected === r.key ? 'true' : 'false');
+    });
+  }
+
+  function strengthBar(m, color) {
+    var pct = clamp(m.strength, 0, 5) / 5 * 100;
+    return '<div class="bar" style="--bc:' + color + '"><span style="width:' + pct.toFixed(1) + '%"></span></div>';
+  }
+
+  function renderRegionPanel(key) {
+    var r = REGION_MAP[key];
+    var info = APP.model.regions[key];
+    var list = (APP.model.layers[key] || []).slice().sort(function (a, b) {
+      return (b.importance - a.importance) || (b.strength - a.strength);
+    });
+    var sig = key + '|' + list.map(function (m) { return m.id + ':' + m.strength.toFixed(2); }).join(',');
+    if (sig === panelSig && elRegionPanel.classList.contains('open')) return;
+    panelSig = sig;
+
+    var html = '<div class="p-head">' +
+      '<h3 style="color:' + r.color + '">' + escapeHTML(r.label) + '</h3>' +
+      '<p class="anat">' + escapeHTML(r.anatomy) + '</p>' +
+      '<div class="p-count"><b style="color:' + r.color + '">' + info.count + '</b><span>条记忆驻留</span></div>' +
+      '</div>';
+
+    html += '<ul class="mem-list">';
+    if (!list.length) {
+      html += '<li class="loading">该脑区暂时没有记忆。写入后粒子会沿弹道飞入。</li>';
+    } else {
+      list.forEach(function (m) {
+        html += '<li><button type="button" class="mem-row' + (m.status === 'corrected' ? ' corrected' : '') +
+          '" data-mem="' + escapeHTML(m.id) + '" aria-label="查看记忆：' + escapeHTML(m.title) + '">' +
+          '<span class="r1"><span class="t">' + fmtTime(m.ts) + '</span>' +
+          '<span class="stars" aria-label="重要度 ' + m.importance + '">' + stars(m.importance) + '</span></span>' +
+          '<span class="summary">' + escapeHTML(m.title) + '</span>' +
+          strengthBar(m, r.color) +
+          '</button></li>';
+      });
+    }
+    html += '</ul>';
+    html += '<div class="detail-actions"><button type="button" class="toggle" data-act="overview">返回全景</button>' +
+      '<span class="note" style="margin:0;align-self:center">强度条 = 衰减后的记忆强度</span></div>';
+
+    elPanelBody.innerHTML = html;
+    elRegionPanel.classList.add('open');
+    panelOpenFlag = true;
+    elRegionPanel.setAttribute('aria-hidden', 'false');
+  }
+
+  function findMemory(id) {
+    var keys = Object.keys(APP.model.layers);
+    for (var i = 0; i < keys.length; i++) {
+      var arr = APP.model.layers[keys[i]];
+      for (var j = 0; j < arr.length; j++) if (arr[j].id === id) return arr[j];
+    }
+    return null;
+  }
+
+  function kvRow(k, v) {
+    return '<dt>' + escapeHTML(k) + '</dt><dd>' + escapeHTML(v) + '</dd>';
+  }
+
+  function showMemoryCard(id) {
+    var m = findMemory(id);
+    if (!m) { toast('该记忆已消失'); closeRegionPanel(); return; }
+    APP.selectedMemory = id;
+    var r = REGION_MAP[m.region];
+    var raw = m.raw || {};
+    var rows = '';
+    rows += kvRow('层级', r.label);
+    rows += kvRow('ID', m.id);
+    rows += kvRow('来源', raw.source || (APP.source === 'demo' ? 'demo' : 'manual'));
+    rows += kvRow('时间', new Date(m.ts).toLocaleString('zh-CN', { hour12: false }));
+    rows += kvRow('重要度', stars(m.importance) + ' ' + m.importance);
+    rows += kvRow('强度', m.strength.toFixed(2) + ' / 5');
+
+    if (m.region === 'episodic') {
+      rows += kvRow('参与者', (raw.participants || []).join('、') || '—');
+      rows += kvRow('地点', raw.place || '—');
+      rows += kvRow('情绪', raw.emotion || '—');
+    } else if (m.region === 'semantic') {
+      rows += kvRow('三元组', (raw.subject || '?') + ' · ' + (raw.relation || '?') + ' → ' + (raw.object || '?'));
+      rows += kvRow('状态', m.status === 'corrected' ? '已修正（旧值失效）' : '有效');
+      if (raw.supersedes) rows += kvRow('取代', raw.supersedes);
+    } else if (m.region === 'procedural') {
+      rows += kvRow('规则', raw.rule || '—');
+      rows += kvRow('命中', String(num(raw.hits, 0)));
+    } else if (m.region === 'working') {
+      rows += kvRow('槽位', '工作栈');
+    } else {
+      var ent = raw.entities || {};
+      rows += kvRow('实体', ['people', 'places', 'times'].map(function (k) {
+        return (ent[k] || []).join('/');
+      }).filter(Boolean).join(' · ') || '—');
+      rows += kvRow('注意', raw.attended === false ? '否' : '是');
+    }
+
+    var extra = m.detail || raw.text || raw.detail || '';
+    var html = '<div class="p-head">' +
+      '<h3 style="color:' + r.color + ';padding-right:26px">' + escapeHTML(m.title) + '</h3>' +
+      '<p class="anat">' + escapeHTML(r.label) + ' · ' + fmtTime(m.ts) + '</p>' +
+      '</div><div class="mem-card"><dl class="kv">' + rows + '</dl>' +
+      (extra ? '<p class="note" style="margin-top:14px;font-size:11px;color:#a9bade;line-height:1.7">' + escapeHTML(extra) + '</p>' : '') +
+      '</div><div class="detail-actions">' +
+      '<button type="button" class="toggle" data-act="back">← 返回 ' + escapeHTML(r.label) + '</button>' +
+      '<button type="button" class="danger" data-act="del" data-id="' + escapeHTML(m.id) + '">删除</button>' +
+      '</div>';
+
+    elPanelBody.innerHTML = html;
+    elRegionPanel.classList.add('open');
+    panelOpenFlag = true;
+    elRegionPanel.setAttribute('aria-hidden', 'false');
+    panelSig = 'card:' + id;
+  }
+
+  function closeRegionPanel() {
+    elRegionPanel.classList.remove('open');
+    panelOpenFlag = false;
+    elRegionPanel.setAttribute('aria-hidden', 'true');
+    APP.selected = null;
+    APP.selectedMemory = null;
+    panelSig = '';
+    renderLayerList(APP.model);
+  }
+
+  function selectRegion(key) {
+    APP.selected = key;
+    APP.selectedMemory = null;
+    panelSig = '';
+    renderRegionPanel(key);
+    renderLayerList(APP.model);
+    var r = REGION_MAP[key];
+    /* swing the camera round to the region's own side of the brain (and up to
+       its elevation) instead of staring through the cortex from wherever the
+       user happened to leave the orbit — then stop ~3.4 units out so the local
+       gyri and the hemisphere contour both stay in frame */
+    var au = _v1.set(r.anchor[0], r.anchor[1], r.anchor[2]);
+    var rad = Math.max(0.35, au.length());
+    var dx = au.x / rad, dy = au.y / rad, dz = au.z / rad;
+    if (rad < 0.85) {                       /* deep structure: look at it from outside, not from within */
+      dx = Math.sin(cam.theta) * Math.sin(cam.phi);
+      dy = Math.cos(cam.phi);
+      dz = Math.cos(cam.theta) * Math.sin(cam.phi);
+      var dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      dx /= dl; dy /= dl; dz /= dl;
+    }
+    var elev = Math.asin(clamp(dy, -0.85, 0.85));
+    flyTo({
+      target: _v2.set(au.x + dx * 0.55, au.y + dy * 0.55, au.z + dz * 0.55),
+      theta: Math.atan2(dx, dz),
+      phi: clamp(Math.PI * 0.5 - elev * 0.8, 0.72, 1.74),
+      radius: TUNING.REGION_ZOOM
+    });
+    closeDrawer();
+  }
+
+  function syncAll(animate) {
+    var m = APP.model;
+    renderStats(m);
+    renderLayerList(m);
+    updateRegionHalos(m);
+    syncParticles(m, animate);
+    labelItems.forEach(function (it) { it.w = it.el.offsetWidth || it.w; });
+    if (APP.selected) {
+      panelSig = '';
+      if (APP.selectedMemory && findMemory(APP.selectedMemory)) showMemoryCard(APP.selectedMemory);
+      else renderRegionPanel(APP.selected);
+    }
+  }
+
+  /* ================================ networking ================================ */
+  var pollTimer = null;
+  var pollInFlight = false;
+
+  function setLiveState(json) {
+    APP.online = true;
+    APP.model = buildModel(json, 'live');
+    setConn('ok', '已连接');
+    syncAll(true);
+  }
+
+  function markOffline() {
+    var wasOnline = APP.online;
+    APP.online = false;
+    setConn('warn', '离线演示');
+    if (APP.model.source !== 'demo') {
+      APP.model = demoModel;
+      syncAll(false);
+    }
+    if (wasOnline) toast('与宿主的连接中断，已切回演示数据');
+  }
+
+  function pollState() {
+    if (pollInFlight || APP.demoMode || !API_BASE) return;
+    pollInFlight = true;
+    fetch(API_BASE + '/api/state', { cache: 'no-store', headers: { accept: 'application/json' } })
+      .then(function (res) {
+        if (!res.ok) throw new Error('http ' + res.status);
+        return res.json();
+      })
+      .then(function (json) {
+        if (!json || json.ok === false) throw new Error('bad payload');
+        setLiveState(json);
+      })
+      .catch(function () {
+        markOffline();
+      })
+      .then(function () { pollInFlight = false; });
+  }
+
+  function startPolling() {
+    stopPolling();
+    if (APP.demoMode || !API_BASE) return;
+    pollState();
+    pollTimer = setInterval(pollState, TUNING.POLL_MS);
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  function postJSON(path, body) {
+    return fetch(API_BASE + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      if (!res.ok) throw new Error('http ' + res.status);
+      return res.json();
+    });
+  }
+
+  /* ------------------------------- add / delete ------------------------------- */
+  var addCounter = 0;
+
+  function buildAddRecord(layer, importance) {
+    var id = 'demo-' + layer.slice(0, 3) + '-x' + (++addCounter);
+    var ts = new Date().toISOString();
+    if (layer === 'episodic') {
+      var event = $('fEvent').value.trim();
+      if (!event) return null;
+      var people = $('fPeople').value.split(/[,，、\s]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+      return {
+        id: id, ts: ts, event: event, participants: people,
+        place: $('fPlace').value.trim(), emotion: $('fEmotion').value.trim(),
+        importance: importance, strength: importance * 0.8,
+        detail: '', source: APP.source
+      };
+    }
+    if (layer === 'semantic') {
+      var subject = $('fSubject').value.trim() || '用户';
+      var relation = $('fRelation').value.trim();
+      var object = $('fObject').value.trim();
+      if (!relation || !object) return null;
+      return {
+        id: id, ts: ts, subject: subject, relation: relation, object: object,
+        status: 'active', importance: importance, strength: importance * 0.7,
+        supersedes: null, source: APP.source
+      };
+    }
+    var rule = $('fRule').value.trim();
+    if (!rule) return null;
+    return { id: id, ts: ts, rule: rule, importance: importance, strength: importance * 0.6, hits: 0, source: APP.source };
+  }
+
+  function addToModel(record, layer) {
+    var m = APP.model;
+    m.layers[layer].push(normalizeRecord(layer, record, m.layers[layer].length));
+    m.stats.total += 1;
+    m.stats.addedToday += 1;
+    m.regions[layer].count = m.layers[layer].length;
+    syncAll(true);
+    renderStats(m);
+    renderLayerList(m);
+    if (APP.selected === layer) { panelSig = ''; renderRegionPanel(layer); }
+  }
+
+  function removeFromModel(id) {
+    var m = APP.model;
+    var removed = null;
+    Object.keys(m.layers).forEach(function (k) {
+      var arr = m.layers[k];
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i].id === id) { removed = arr.splice(i, 1)[0]; break; }
+      }
+    });
+    if (!removed) return false;
+    m.stats.total = Math.max(0, m.stats.total - 1);
+    m.regions[removed.region].count = m.layers[removed.region].length;
+    syncAll(true);
+    renderStats(m);
+    renderLayerList(m);
+    if (APP.selected) { panelSig = ''; renderRegionPanel(APP.selected); }
+    return true;
+  }
+
+  function onSubmitAdd(ev) {
+    ev.preventDefault();
+    var layer = $('addLayer').value;
+    var importance = clamp(parseInt($('fImp').value, 10) || 3, 1, 5);
+    var record = buildAddRecord(layer, importance);
+    if (!record) { toast('请先填写记忆内容'); return; }
+
+    var inputEl = layer === 'episodic' ? $('fEvent') : (layer === 'semantic' ? $('fRelation') : $('fRule'));
+    var rect = inputEl.getBoundingClientRect();
+    var ox = rect.left + rect.width / 2;
+    var oy = rect.top + Math.max(8, rect.height / 2);
+    elAddForm.hidden = true;
+    elAddBtn.setAttribute('aria-expanded', 'false');
+
+    spawnAddFlight(ox, oy, layer, function () {
+      addToModel(record, layer);
+      if (layer === 'episodic') { $('fEvent').value = ''; $('fPeople').value = ''; $('fPlace').value = ''; $('fEmotion').value = ''; }
+      else if (layer === 'semantic') { $('fRelation').value = ''; $('fObject').value = ''; }
+      else { $('fRule').value = ''; }
+      toast('已写入 · ' + REGION_MAP[layer].label);
+    });
+
+    if (!APP.demoMode && APP.online) {
+      var payload;
+      if (layer === 'episodic') {
+        payload = {
+          layer: 'episodic', event: record.event, participants: record.participants,
+          place: record.place, emotion: record.emotion, importance: importance, detail: ''
+        };
+      } else if (layer === 'semantic') {
+        payload = { layer: 'semantic', subject: record.subject, relation: record.relation, object: record.object, importance: importance };
+      } else {
+        payload = { layer: 'procedural', rule: record.rule, importance: importance };
+      }
+      postJSON('/api/remember', payload).then(function (res) {
+        if (res && res.ok && res.item && res.item.id) {
+          var incoming = res.item;
+          var pending = record.id;
+          setTimeout(function () {
+            var m = APP.model;
+            for (var i = 0; i < m.layers[layer].length; i++) {
+              if (m.layers[layer][i].id === pending) {
+                m.layers[layer][i] = normalizeRecord(layer, incoming, i);
+                break;
+              }
+            }
+            syncAll(false);
+          }, TUNING.ADD_FLIGHT_MS + 60);
+        }
+      }).catch(function () {
+        toast('宿主写入失败，已保留本地演示副本');
+      });
+    }
+  }
+
+  function requestDelete(id) {
+    if (APP.demoMode || !APP.online) {
+      if (removeFromModel(id)) { toast('已从演示模型移除'); closeRegionPanel(); }
+      return;
+    }
+    postJSON('/api/forget', { id: id }).then(function (res) {
+      if (!res || res.ok !== true) throw new Error('forget failed');
+      if (removeFromModel(id)) toast('已归档');
+      closeRegionPanel();
+      pollState();
+    }).catch(function () {
+      toast('删除失败：宿主未响应');
+    });
+  }
+
+  /* -------------------------------- panel wiring -------------------------------- */
+  elPanelBody.addEventListener('click', function (ev) {
+    var row = ev.target.closest('[data-mem]');
+    if (row) { showMemoryCard(row.getAttribute('data-mem')); return; }
+    var act = ev.target.closest('[data-act]');
+    if (!act) return;
+    var kind = act.getAttribute('data-act');
+    if (kind === 'back') {
+      var sel = APP.selected;
+      APP.selectedMemory = null;
+      panelSig = '';
+      if (sel) renderRegionPanel(sel);
+    } else if (kind === 'overview') {
+      closeRegionPanel();
+      defaultView();
+    } else if (kind === 'del') {
+      if (act.dataset.confirm === '1') { requestDelete(act.getAttribute('data-id')); return; }
+      act.dataset.confirm = '1';
+      act.textContent = '确认删除？';
+      setTimeout(function () {
+        if (act.isConnected) { act.dataset.confirm = '0'; act.textContent = '删除'; }
+      }, 3200);
+    }
+  });
+
+  $('panelClose').addEventListener('click', function () { closeRegionPanel(); });
+
+  /* ---------------------------------- UI wiring ---------------------------------- */
+  function closeDrawer() {
+    elSide.classList.remove('open');
+    elDrawer.setAttribute('aria-expanded', 'false');
+  }
+
+  elDrawer.addEventListener('click', function () {
+    var open = elSide.classList.toggle('open');
+    elDrawer.setAttribute('aria-expanded', open ? 'true' : 'false');
+    elDrawer.setAttribute('aria-label', open ? '收起图层列表' : '展开图层列表');
+  });
+  $('sideClose').addEventListener('click', closeDrawer);
+
+  elSpeed.addEventListener('input', function () {
+    APP.speed = parseFloat(elSpeed.value) || 0;
+    elSpeedOut.textContent = APP.speed.toFixed(1) + '×';
+  });
+
+  elCruise.addEventListener('click', function () {
+    APP.cruise = !APP.cruise;
+    elCruise.setAttribute('aria-pressed', APP.cruise ? 'true' : 'false');
+  });
+
+  elDemo.addEventListener('click', function () {
+    APP.demoMode = !APP.demoMode;
+    elDemo.setAttribute('aria-pressed', APP.demoMode ? 'true' : 'false');
+    if (APP.demoMode) {
+      stopPolling();
+      APP.online = false;
+      APP.model = demoModel;
+      setConn('', '演示数据');
+      syncAll(false);
+      toast('演示模式：不访问宿主接口');
+    } else if (!API_BASE) {
+      APP.demoMode = true;
+      elDemo.setAttribute('aria-pressed', 'true');
+      toast('file:// 模式无法连接宿主接口，保持演示数据');
+    } else {
+      setConn('', '连接中');
+      startPolling();
+    }
+  });
+
+  elAddBtn.addEventListener('click', function () {
+    elAddForm.hidden = !elAddForm.hidden;
+    elAddBtn.setAttribute('aria-expanded', elAddForm.hidden ? 'false' : 'true');
+    if (!elAddForm.hidden) {
+      var layer = $('addLayer').value;
+      var first = layer === 'episodic' ? $('fEvent') : (layer === 'semantic' ? $('fSubject') : $('fRule'));
+      try { first.focus({ preventScroll: true }); } catch (err) { first.focus(); }
+    }
+  });
+  $('addClose').addEventListener('click', function () {
+    elAddForm.hidden = true;
+    elAddBtn.setAttribute('aria-expanded', 'false');
+  });
+  elAddForm.addEventListener('submit', onSubmitAdd);
+  $('addLayer').addEventListener('change', function () {
+    var layer = $('addLayer').value;
+    Array.prototype.forEach.call(elAddForm.querySelectorAll('.fields'), function (g) {
+      g.hidden = g.getAttribute('data-for') !== layer;
+    });
+  });
+  $('fImp').addEventListener('input', function () {
+    $('fImpOut').textContent = stars(parseInt($('fImp').value, 10));
+  });
+
+  $('resetBtn').addEventListener('click', function () {
+    demoModel = freshDemoModel();
+    APP.model = demoModel;
+    APP.demoMode = true;
+    elDemo.setAttribute('aria-pressed', 'true');
+    stopPolling();
+    APP.online = false;
+    setConn('', '演示数据');
+    APP.selected = null;
+    APP.selectedMemory = null;
+    panelSig = '';
+    closeRegionPanel();
+    syncParticles(APP.model, false);
+    syncAll(false);
+    defaultView();
+    toast('演示数据已重置（20 条核心记忆）');
+  });
+
+  $('exportBtn').addEventListener('click', function () {
+    var m = APP.model;
+    var payload = {
+      version: '1.0.0',
+      generatedAt: new Date().toISOString(),
+      stats: m.stats,
+      sensory: m.layers.sensory.map(function (r) { return r.raw; }),
+      working: { capacity: 7, stack: m.layers.working.map(function (r) { return r.raw; }) },
+      episodic: m.layers.episodic.map(function (r) { return r.raw; }),
+      semantic: m.layers.semantic.map(function (r) { return r.raw; }),
+      procedural: m.layers.procedural.map(function (r) { return r.raw; })
+    };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'brain-memories.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    toast('已导出 brain-memories.json');
+  });
+
+  $('overviewBtn').addEventListener('click', function () {
+    closeRegionPanel();
+    defaultView();
+  });
+
+  var debugOn = false;
+  function toggleDebug() {
+    debugOn = !debugOn;
+    elDebug.hidden = !debugOn;
+  }
+
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') {
+      if (!elAddForm.hidden) {
+        elAddForm.hidden = true;
+        elAddBtn.setAttribute('aria-expanded', 'false');
+        return;
+      }
+      closeRegionPanel();
+      defaultView();
+    } else if (ev.key === 'd' || ev.key === 'D') {
+      var tag = (ev.target && ev.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      toggleDebug();
+    }
+  });
+
+  /* --------------------------------- resizing --------------------------------- */
+  function resize() {
+    var w = window.innerWidth;
+    var h = window.innerHeight;
+    camera.aspect = w / Math.max(1, h);
+    camera.updateProjectionMatrix();
+    renderer.setPixelRatio(QUALITY.pixelRatio);
+    renderer.setSize(w, h, false);
+    particleUniforms.uPixelRatio.value = renderer.getPixelRatio();
+    camScale = autoFitScale();
+    labelItems.forEach(function (it) { it.w = it.el.offsetWidth || it.w; });
+  }
+  window.addEventListener('resize', resize, { passive: true });
+  window.addEventListener('orientationchange', resize, { passive: true });
+
+  /* --------------------------------- the loop --------------------------------- */
+  var lastFrame = 0;
+  var elapsed = 0;
+  var rafId = 0;
+  var onScreen = true;
+
+  if (typeof IntersectionObserver === 'function') {
+    var io = new IntersectionObserver(function (list) {
+      onScreen = list[0] ? list[0].isIntersecting : true;
+    }, { threshold: 0 });
+    io.observe(canvas);
+  }
+
+  function updateDebug() {
+    var info = renderer.info;
+    elDebug.textContent =
+      'draw calls ' + info.render.calls + '\n' +
+      'triangles  ' + info.render.triangles + '\n' +
+      'points     ' + info.render.points + '\n' +
+      'particles  ' + Math.min(entries.length, CAP) + ' / ' + TUNING.MAX_PARTICLES + '\n' +
+      'pixelRatio ' + renderer.getPixelRatio() + '\n' +
+      'quality    ' + (QUALITY.lowPower ? 'low' : 'high');
+  }
+
+  function frame(now) {
+    rafId = requestAnimationFrame(frame);
+    var dt = lastFrame ? Math.min(0.06, (now - lastFrame) / 1000) : 0.016;
+    lastFrame = now;
+
+    if (document.hidden || !onScreen) return;
+
+    elapsed += dt;
+    particleUniforms.uTime.value = elapsed;
+
+    updateCamera(dt, elapsed);
+    updateParticleAnimations(dt);
+    writeParticles();
+    updateFlights(dt);
+
+    for (var i = 0; i < markers.length; i++) {
+      var mk = markers[i];
+      var pulse = 1 + 0.10 * Math.sin(elapsed * 2.1 + i * 1.7);
+      mk.ring.quaternion.copy(camera.quaternion);
+      mk.ring.scale.setScalar(pulse);
+      mk.orb.scale.setScalar(0.92 + 0.14 * Math.sin(elapsed * 1.5 + i));
+      mk.halo.scale.setScalar(0.5 + 0.05 * Math.sin(elapsed * 1.3 + i));
+    }
+
+    updateLabels(elapsed);
+    renderer.render(scene, camera);
+    if (debugOn) updateDebug();
+  }
+
+  /* ----------------------------------- boot ----------------------------------- */
+  (function boot() {
+    demoModel = freshDemoModel();
+    APP.model = demoModel;
+    if (APP.fileMode && !API_BASE) APP.demoMode = true;
+    elDemo.setAttribute('aria-pressed', APP.demoMode ? 'true' : 'false');
+    buildMarkers();
+    resize();
+    applyCamera();
+    syncAll(false);
+    setConn(APP.fileMode ? 'warn' : '', APP.fileMode ? '离线演示' : '连接中');
+    if (APP.demoMode) {
+      if (APP.fileMode) setTimeout(function () { toast('file:// 模式：不访问宿主，仅演示数据'); }, 600);
+    } else {
+      startPolling();
+    }
+    rafId = requestAnimationFrame(frame);
+  })();
+
+})();
+</script>
+</body>
+</html>

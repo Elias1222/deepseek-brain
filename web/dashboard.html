@@ -1,0 +1,3336 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>记忆仪表盘 · deepseek-brain</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Palette: hand-written custom properties, one accent per memory layer.
+   Radii fixed at 12px, transitions kept inside 150–220 ms.
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --bg:#05070d;
+  --panel:#0b111d;
+  --panel-2:#0d1524;
+  --panel-3:#101c2e;
+  --line:rgba(148,178,224,.14);
+  --line-strong:rgba(148,178,224,.30);
+  --text:#e7eefb;
+  --muted:#8496b4;
+  --dim:#5b6d8a;
+  --accent:#5eead4;
+  --accent-2:#38bdf8;
+  --warn:#fbbf24;
+  --danger:#fb7185;
+  --ok:#34d399;
+
+  --sensory:#67e8f9;
+  --working:#a78bfa;
+  --episodic:#f472b6;
+  --semantic:#34d399;
+  --procedural:#fbbf24;
+
+  --r:12px;
+  --t:180ms cubic-bezier(.22,.61,.36,1);
+  --mono: ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei", sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:var(--mono);
+  font-size:13px;
+  line-height:1.55;
+  color:var(--text);
+  background:
+    radial-gradient(1100px 560px at 12% -12%, rgba(56,189,248,.10), transparent 62%),
+    radial-gradient(900px 520px at 104% -6%, rgba(167,139,250,.10), transparent 58%),
+    radial-gradient(700px 500px at 50% 120%, rgba(52,211,153,.06), transparent 60%),
+    var(--bg);
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+::selection{background:rgba(94,234,212,.28)}
+
+/* grid + scanline atmosphere (non-interactive, behind everything) */
+.bg-grid{
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  background-image:
+    linear-gradient(rgba(120,170,255,.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120,170,255,.055) 1px, transparent 1px);
+  background-size:44px 44px;
+  -webkit-mask-image:radial-gradient(circle at 50% 26%, #000 0%, transparent 76%);
+  mask-image:radial-gradient(circle at 50% 26%, #000 0%, transparent 76%);
+}
+.scan{position:fixed; inset:0; z-index:1; pointer-events:none; overflow:hidden}
+.scan::before{
+  content:""; position:absolute; inset:0;
+  background:repeating-linear-gradient(to bottom, rgba(255,255,255,.020) 0 1px, transparent 1px 3px);
+}
+.scan::after{
+  content:""; position:absolute; left:0; right:0; height:240px;
+  background:linear-gradient(to bottom, transparent, rgba(94,234,212,.045), transparent);
+  animation:sweep 11s linear infinite;
+}
+@keyframes sweep{0%{top:-30%}100%{top:112%}}
+
+/* ── shell ─────────────────────────────────────────────────── */
+.topbar{
+  position:sticky; top:0; z-index:20;
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  padding:12px 22px;
+  background:linear-gradient(180deg, rgba(6,10,18,.94), rgba(6,10,18,.72));
+  border-bottom:1px solid var(--line);
+  backdrop-filter:blur(10px);
+}
+.brand{display:flex; align-items:baseline; gap:10px; min-width:0}
+.glyph{
+  font-size:16px; color:var(--accent);
+  text-shadow:0 0 12px rgba(94,234,212,.65);
+}
+.brand-t{font-size:15px; letter-spacing:.06em; font-weight:600}
+.brand-s{font-size:11px; color:var(--dim); letter-spacing:.04em; white-space:nowrap}
+.top-actions{display:flex; align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap}
+
+.pill{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:4px 10px; border-radius:999px;
+  border:1px solid var(--line-strong);
+  background:rgba(94,234,212,.08);
+  color:var(--accent); font-size:11px; letter-spacing:.05em; white-space:nowrap;
+  transition:color var(--t), background var(--t), border-color var(--t);
+}
+.pill .dot{width:6px; height:6px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor}
+.pill.live .dot{animation:pulse 2s ease-in-out infinite}
+.pill.offline{color:var(--warn); background:rgba(251,191,36,.09); border-color:rgba(251,191,36,.32)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.32}}
+
+.switch{display:inline-flex; align-items:center; gap:7px; font-size:11px; color:var(--muted); cursor:pointer; user-select:none}
+.switch input{
+  appearance:none; width:30px; height:16px; border-radius:999px; margin:0;
+  background:#16233a; border:1px solid var(--line-strong); position:relative; cursor:pointer;
+  transition:background var(--t), border-color var(--t);
+}
+.switch input::after{
+  content:""; position:absolute; top:1px; left:1px; width:12px; height:12px; border-radius:50%;
+  background:#6b7f9e; transition:transform var(--t), background var(--t);
+}
+.switch input:checked{background:rgba(94,234,212,.22); border-color:rgba(94,234,212,.5)}
+.switch input:checked::after{transform:translateX(14px); background:var(--accent)}
+
+.btn{
+  font:inherit; font-size:12px; color:var(--text);
+  padding:6px 12px; border-radius:9px; cursor:pointer;
+  background:rgba(148,178,224,.07);
+  border:1px solid var(--line-strong);
+  transition:background var(--t), border-color var(--t), color var(--t), transform var(--t);
+  white-space:nowrap;
+}
+.btn:hover{background:rgba(148,178,224,.14); border-color:rgba(148,178,224,.45)}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.45; cursor:not-allowed; transform:none}
+.btn.primary{
+  color:#03150f; font-weight:600;
+  background:linear-gradient(180deg, #7ef0dc, #3fd6c0);
+  border-color:rgba(94,234,212,.6);
+  box-shadow:0 0 0 1px rgba(94,234,212,.18), 0 6px 18px -10px rgba(94,234,212,.9);
+}
+.btn.primary:hover{background:linear-gradient(180deg, #9df5e6, #4fe0ca)}
+.btn.ghost{background:transparent}
+.btn.small{padding:3px 8px; font-size:11px; border-radius:7px}
+.btn.danger{color:var(--danger); border-color:rgba(251,113,133,.35); background:rgba(251,113,133,.08)}
+.btn.danger:hover{background:rgba(251,113,133,.16); border-color:rgba(251,113,133,.55)}
+
+.tabs{
+  position:sticky; top:57px; z-index:19;
+  display:flex; gap:6px; padding:8px 22px;
+  background:linear-gradient(180deg, rgba(6,10,18,.9), rgba(6,10,18,.55));
+  border-bottom:1px solid var(--line);
+  backdrop-filter:blur(8px);
+  overflow-x:auto; scrollbar-width:none;
+}
+.tabs::-webkit-scrollbar{display:none}
+.tab{
+  font:inherit; font-size:12.5px; color:var(--muted);
+  padding:6px 14px; border-radius:8px; cursor:pointer;
+  background:transparent; border:1px solid transparent;
+  display:inline-flex; align-items:center; gap:7px;
+  transition:color var(--t), background var(--t), border-color var(--t);
+  white-space:nowrap;
+}
+.tab .k{font-size:10px; color:var(--dim); border:1px solid var(--line-strong); border-radius:4px; padding:0 4px}
+.tab:hover{color:var(--text); background:rgba(148,178,224,.07)}
+.tab[aria-selected="true"]{
+  color:#03150f; background:linear-gradient(180deg,#7ef0dc,#3fd6c0);
+  border-color:rgba(94,234,212,.55);
+}
+.tab[aria-selected="true"] .k{color:#06251f; border-color:rgba(6,37,31,.35)}
+
+main{position:relative; z-index:2; padding:18px 22px 24px; max-width:1440px; margin:0 auto}
+.view{display:none}
+.view.active{display:block; animation:fadein 200ms ease-out}
+@keyframes fadein{from{opacity:0; transform:translateY(4px)}to{opacity:1; transform:none}}
+
+.sec-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:2px 0 14px}
+.sec-head h2{margin:0; font-size:14px; letter-spacing:.08em; font-weight:600}
+.sec-head p{margin:0; font-size:11.5px}
+
+h3{margin:0; font-size:12.5px; letter-spacing:.05em; font-weight:600}
+.muted{color:var(--muted)}
+.small{font-size:11px}
+.dim{color:var(--dim)}
+.num{font-variant-numeric:tabular-nums}
+
+/* ── cards ─────────────────────────────────────────────────── */
+.card{
+  position:relative;
+  background:linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,0) 42%), var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--r);
+  padding:14px 16px;
+  transition:border-color var(--t), box-shadow var(--t);
+  min-width:0;
+}
+.card:hover{border-color:var(--line-strong); box-shadow:0 10px 34px -26px rgba(56,189,248,.7)}
+.card-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px}
+
+.grid-3{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:14px; margin-bottom:14px}
+.grid-2{display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:14px; margin-bottom:14px}
+
+/* KPI */
+.kpis{display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:14px; margin-bottom:14px}
+.kpi{padding:13px 15px}
+.kpi-l{font-size:11px; color:var(--muted); letter-spacing:.06em}
+.kpi-v{font-size:27px; line-height:1.15; margin-top:4px; font-weight:600; letter-spacing:-.01em}
+.kpi-s{font-size:10.5px; color:var(--dim); margin-top:3px}
+.kpi.chips{grid-column:span 1}
+.chips-row{display:flex; flex-wrap:wrap; gap:5px; margin-top:8px}
+/* one chip treatment for every 活跃主题 token — no alternating tint */
+.chip{
+  font-size:10.5px; padding:2px 8px; border-radius:999px;
+  color:var(--accent-2); background:rgba(56,189,248,.10);
+  border:1px solid rgba(56,189,248,.3);
+  max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.flash{animation:flash 900ms ease-out}
+@keyframes flash{
+  0%{box-shadow:0 0 0 1px rgba(94,234,212,.85), 0 0 32px -6px rgba(94,234,212,.85); border-color:rgba(94,234,212,.9)}
+  100%{box-shadow:0 0 0 1px rgba(94,234,212,0); border-color:var(--line)}
+}
+
+/* layer stacked bar + legend */
+.stack{
+  display:flex; height:14px; border-radius:7px; overflow:hidden;
+  background:#080f1a; border:1px solid var(--line);
+}
+.stack .seg{height:100%; transition:width 200ms var(--t), filter 150ms ease-out}
+.stack .seg:hover{filter:brightness(1.35)}
+.stack .seg.empty{width:0}
+.legend{list-style:none; margin:12px 0 0; padding:0; display:grid; gap:6px}
+.legend li{display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--muted)}
+.legend .sw{width:9px; height:9px; border-radius:3px; flex:0 0 auto; box-shadow:0 0 8px -1px currentColor}
+.legend .nm{color:var(--text)}
+.legend .ct{margin-left:auto; font-variant-numeric:tabular-nums; color:var(--text)}
+.legend .pc{width:44px; text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; font-size:10.5px}
+
+/* health / histogram */
+.hist-wrap{position:relative; height:178px}
+.canvas-box{position:relative; min-width:0}
+.canvas-box canvas{display:block; width:100%; height:100%}
+.health-foot{display:flex; align-items:center; gap:10px; margin-top:12px; flex-wrap:wrap}
+.sleep-report{
+  margin-top:10px; font-size:11.5px; color:var(--muted);
+  border-left:2px solid rgba(94,234,212,.5); padding:2px 0 2px 10px;
+  white-space:pre-line; line-height:1.7;
+}
+.kv{display:grid; gap:7px; font-size:11.5px}
+.kv .row{display:flex; gap:10px; justify-content:space-between; color:var(--muted)}
+.kv .row b{color:var(--text); font-weight:500; font-variant-numeric:tabular-nums}
+
+/* ── banner / empty / skeleton ─────────────────────────────── */
+.banner{
+  position:relative; z-index:2;
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin:12px 22px 0; padding:9px 12px;
+  font-size:11.5px; color:#fde68a;
+  background:rgba(251,191,36,.07);
+  border:1px solid rgba(251,191,36,.32);
+  border-radius:10px;
+}
+.banner[hidden]{display:none}
+.banner .grow{flex:1 1 240px; min-width:0}
+.banner .x{
+  background:transparent; border:0; color:inherit; cursor:pointer; font-size:14px;
+  line-height:1; padding:2px 4px; opacity:.8;
+}
+.banner .x:hover{opacity:1}
+.empty{text-align:center; color:var(--dim); font-size:12px; padding:46px 16px}
+.empty .ico{font-size:22px; color:var(--line-strong); display:block; margin-bottom:8px}
+.sk{border-radius:8px; background:linear-gradient(90deg,#0c1422 0%,#16233a 40%,#0c1422 80%); background-size:220% 100%; animation:sk 1.3s linear infinite}
+@keyframes sk{from{background-position:120% 0}to{background-position:-120% 0}}
+
+/* ── timeline ──────────────────────────────────────────────── */
+.filters{
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  padding:10px 12px; margin-bottom:12px;
+  background:linear-gradient(180deg, rgba(255,255,255,.02), transparent), var(--panel);
+  border:1px solid var(--line); border-radius:var(--r);
+}
+.layer-checks{display:flex; gap:10px; flex-wrap:wrap}
+.layer-checks label{
+  display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--muted);
+  cursor:pointer; user-select:none;
+  padding:3px 7px; border-radius:7px; border:1px solid transparent;
+  transition:background var(--t), color var(--t), border-color var(--t);
+}
+.layer-checks label:hover{background:rgba(148,178,224,.07); color:var(--text)}
+.layer-checks input{accent-color:currentColor; width:12px; height:12px; margin:0}
+.layer-checks label.on{color:var(--text); border-color:var(--line-strong); background:rgba(148,178,224,.06)}
+.filters .field{display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted)}
+select,input[type="date"],input[type="text"],input[type="search"],textarea{
+  font:inherit; font-size:11.5px; color:var(--text);
+  background:#0a1120; border:1px solid var(--line-strong);
+  border-radius:8px; padding:5px 8px; outline:none;
+  transition:border-color var(--t), background var(--t), box-shadow var(--t);
+}
+select:focus,input:focus,textarea:focus{border-color:rgba(94,234,212,.6); box-shadow:0 0 0 3px rgba(94,234,212,.12)}
+input[type="date"]{color-scheme:dark}
+input::placeholder{color:var(--dim)}
+.search{flex:1 1 220px; min-width:150px}
+.tl-viewport{
+  position:relative; overflow-y:auto; overflow-x:hidden;
+  height:clamp(420px, calc(100vh - 262px), 900px);
+  border:1px solid var(--line); border-radius:var(--r);
+  background:linear-gradient(180deg, rgba(8,13,22,.75), rgba(5,7,13,.9));
+  scrollbar-color:#22304a transparent;
+  contain:strict;
+}
+.tl-viewport::-webkit-scrollbar{width:8px}
+.tl-viewport::-webkit-scrollbar-thumb{background:#22304a; border-radius:4px}
+.tl-inner{position:relative; width:100%}
+/* One compact line per memory: time | dot | title + tags | stars + strength |
+   delete. Everything sits on a single 52px grid row (ROW_H in the JS), so the
+   virtualizer's fixed-height model needs no per-row measurement. */
+.tl-row{
+  position:absolute; left:0; right:0; height:52px;
+  display:grid; grid-template-columns:52px 14px minmax(0,1fr) auto;
+  align-items:center; column-gap:10px; padding:0 12px;
+  border-bottom:1px solid rgba(148,178,224,.06);
+  transition:background 150ms ease-out;
+}
+.tl-row:hover{background:rgba(148,178,224,.045)}
+.tl-row::before{
+  content:""; position:absolute; left:calc(12px + 52px + 10px + 7px); top:0; bottom:0; width:1px;
+  background:linear-gradient(to bottom, rgba(148,178,224,.20), rgba(148,178,224,.08));
+}
+.tl-row .time{font-size:11px; color:var(--muted); text-align:right; font-variant-numeric:tabular-nums; letter-spacing:.02em; white-space:nowrap}
+.tl-row .dot{position:relative; width:9px; height:9px; border-radius:50%; margin:0 auto; background:currentColor; box-shadow:0 0 10px currentColor}
+.tl-row .dot::after{content:""; position:absolute; inset:-4px; border-radius:50%; border:1px solid currentColor; opacity:.22}
+.tl-row .body{display:flex; align-items:center; gap:9px; min-width:0}
+.tl-row .ev{
+  flex:0 1 auto; min-width:0;
+  font-size:12.5px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.tl-row .meta{
+  display:flex; align-items:center; gap:6px; flex:0 1 auto; min-width:0;
+  overflow:hidden; font-size:10.5px; color:var(--dim); white-space:nowrap;
+}
+.tl-row .meta span{flex:0 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.tl-row .meta span.tag{flex:0 0 auto}
+.tl-row .tag{
+  color:var(--warn); border:1px solid rgba(251,191,36,.28);
+  background:rgba(251,191,36,.08); border-radius:5px; padding:0 5px;
+}
+.tl-row .tag.emo{color:#f9a8d4; border-color:rgba(249,168,212,.28); background:rgba(249,168,212,.08)}
+/* flex-direction and order are explicit: the graph panel also owns a `.side`
+   class and re-orders itself on narrow screens, which must not leak into rows */
+.tl-row .side{display:flex; flex-direction:row; order:0; align-items:center; justify-content:flex-end; gap:8px; flex:0 0 auto}
+.stars{font-size:10px; letter-spacing:.5px; color:#ffd479; white-space:nowrap; flex:0 0 auto}
+.stars .off{color:#2b3648}
+.tl-row .decay{display:flex; align-items:center; gap:6px; flex:0 0 auto}
+.tl-row .bar{width:64px; flex:0 0 64px; height:5px; border-radius:3px; background:#0a1220; overflow:hidden; border:1px solid var(--line)}
+.tl-row .bar i{display:block; height:100%; border-radius:3px; transition:width 200ms var(--t)}
+.tl-row .val{font-size:10px; color:var(--muted); font-variant-numeric:tabular-nums; width:24px; flex:0 0 24px; text-align:right}
+.tl-row .del{
+  font:inherit; font-size:10px; padding:1px 6px; border-radius:6px; cursor:pointer;
+  flex:0 0 auto; white-space:nowrap;
+  color:var(--dim); background:transparent; border:1px solid var(--line);
+  transition:color 150ms, border-color 150ms, background 150ms;
+}
+.tl-row .del:hover{color:var(--danger); border-color:rgba(251,113,133,.5); background:rgba(251,113,133,.08)}
+.tl-row .del.confirm{color:#03070d; background:var(--danger); border-color:var(--danger); font-weight:600}
+.tl-day{
+  position:absolute; left:0; right:0; height:40px;
+  display:flex; align-items:center; gap:10px; padding:0 12px;
+  background:linear-gradient(180deg, rgba(10,17,28,.96), rgba(8,13,22,.72));
+  border-bottom:1px solid rgba(148,178,224,.10);
+}
+.tl-day .lbl{font-size:10.5px; color:var(--muted); letter-spacing:.06em}
+.tl-day .lbl b{color:var(--text); font-weight:500}
+.tl-day .n{font-size:10px; color:var(--dim)}
+.tl-day .rule{flex:1; height:1px; background:linear-gradient(90deg, var(--line), transparent)}
+
+/* 「最近 5 条记忆」 on the overview: same row markup, shorter and static */
+.recent-list{position:relative; display:block}
+.recent-head-right{display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end}
+.tl-row.mini{height:36px; padding:0 4px; column-gap:9px}
+.tl-row.mini::before{left:calc(4px + 52px + 9px + 7px)}
+.tl-row.mini .ev{font-size:12px}
+.tl-row.mini .body{gap:8px}
+
+/* ── graph ─────────────────────────────────────────────────── */
+.graph-wrap{display:grid; grid-template-columns:minmax(0,1fr) 288px; gap:14px}
+.graph-card{display:flex; flex-direction:column}
+.graph-box{height:clamp(440px, 64vh, 740px); border-radius:10px; overflow:hidden; background:radial-gradient(600px 380px at 50% 40%, rgba(52,211,153,.05), transparent 70%), rgba(4,8,14,.6); border:1px solid rgba(148,178,224,.08); cursor:grab}
+.graph-box.dragging{cursor:grabbing}
+.graph-hint{position:absolute; left:10px; bottom:8px; pointer-events:none; opacity:.75; display:flex; flex-wrap:wrap; gap:1px 0; max-width:calc(100% - 20px)}
+.graph-hint span::after{content:"·"; margin:0 7px; opacity:.55}
+.graph-hint span:last-child::after{content:""; margin:0}
+.legend-inline{display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:11px; color:var(--muted)}
+.legend-inline .it{display:inline-flex; align-items:center; gap:6px}
+.legend-inline .sw{width:8px; height:8px; border-radius:50%}
+.legend-inline .dash{width:16px; height:0; border-top:1px dashed #f472b6}
+.badge{font-size:10px; padding:2px 7px; border-radius:999px; border:1px solid var(--line-strong); color:var(--muted); font-variant-numeric:tabular-nums}
+.badge.warn{color:var(--warn); border-color:rgba(251,191,36,.35); background:rgba(251,191,36,.08)}
+.side{display:flex; flex-direction:column; min-height:0}
+.facts{display:grid; gap:8px; overflow-y:auto; max-height:calc(clamp(440px, 64vh, 740px) - 20px); padding-right:2px}
+.facts::-webkit-scrollbar{width:6px}
+.facts::-webkit-scrollbar-thumb{background:#22304a; border-radius:3px}
+.fact{
+  border:1px solid var(--line); border-radius:9px; padding:8px 10px;
+  background:rgba(10,16,27,.7); font-size:11.5px; line-height:1.6;
+  transition:border-color var(--t);
+}
+.fact:hover{border-color:var(--line-strong)}
+.fact .rel{color:var(--accent-2); font-size:10.5px; letter-spacing:.04em}
+.fact .so{color:var(--text)}
+.fact .st{font-size:10px; margin-top:4px; color:var(--dim); display:flex; gap:8px; flex-wrap:wrap}
+.fact .st .corr{color:#f9a8d4}
+.node-title{display:flex; align-items:center; gap:8px; margin-bottom:10px}
+.node-title .nm{font-size:14px; letter-spacing:.02em}
+
+/* ── heatmap ───────────────────────────────────────────────── */
+.heat-grid{display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:14px}
+.heat-box{height:clamp(300px, 42vh, 460px)}
+.decay-box{height:clamp(290px, 44vh, 460px)}
+.crossings{list-style:none; margin:10px 0 0; padding:0; display:grid; gap:4px; font-size:11px}
+.crossings li{display:flex; align-items:center; gap:8px; color:var(--muted)}
+.crossings .sw{width:14px; height:3px; border-radius:2px; flex:0 0 14px}
+.crossings .sw.pin{background:repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 7px)}
+.crossings b{color:var(--text); font-weight:500; font-variant-numeric:tabular-nums; margin-left:auto; white-space:nowrap}
+.crossings .imm b{color:#fbbf24}
+.crossings .cap{font-size:10px; color:var(--dim); letter-spacing:.02em; padding-bottom:2px}
+
+/* ── tooltip ───────────────────────────────────────────────── */
+.tip{
+  position:fixed; z-index:60; pointer-events:none;
+  max-width:280px; padding:8px 10px;
+  font-size:11px; line-height:1.6; color:var(--text);
+  background:rgba(8,13,22,.97);
+  border:1px solid var(--line-strong); border-radius:9px;
+  box-shadow:0 18px 44px -22px #000;
+  opacity:0; transform:translateY(3px);
+  transition:opacity 150ms ease-out, transform 150ms ease-out;
+}
+.tip.on{opacity:1; transform:none}
+.tip[hidden]{display:none}
+.tip .t-h{color:var(--accent); font-size:10.5px; letter-spacing:.05em; margin-bottom:3px}
+.tip .t-r{color:var(--muted)}
+.tip .t-v{color:var(--text)}
+
+/* ── modal ─────────────────────────────────────────────────── */
+.modal{position:fixed; inset:0; z-index:50; display:flex; align-items:center; justify-content:center; padding:18px}
+.modal[hidden]{display:none}
+.modal .backdrop{position:absolute; inset:0; background:rgba(2,4,8,.72); backdrop-filter:blur(3px); animation:fadein 150ms ease-out}
+.sheet{
+  position:relative; width:min(520px, 100%); max-height:calc(100vh - 40px); overflow-y:auto;
+  background:linear-gradient(180deg, rgba(255,255,255,.03), transparent 38%), var(--panel);
+  border:1px solid var(--line-strong); border-radius:var(--r);
+  padding:18px 18px 16px;
+  box-shadow:0 40px 120px -50px #000, 0 0 0 1px rgba(94,234,212,.06);
+  animation:sheetin 200ms cubic-bezier(.22,.61,.36,1);
+}
+@keyframes sheetin{from{opacity:0; transform:translateY(10px) scale(.99)}to{opacity:1; transform:none}}
+.sheet h3{font-size:13px; margin-bottom:2px}
+.sheet .sub{font-size:11px; color:var(--dim); margin:0 0 14px}
+.seg{display:flex; gap:6px; padding:3px; background:#080f1a; border:1px solid var(--line); border-radius:9px; margin-bottom:14px}
+.seg button{
+  flex:1; font:inherit; font-size:11.5px; padding:6px 8px; border-radius:7px; cursor:pointer;
+  background:transparent; border:1px solid transparent; color:var(--muted);
+  transition:color var(--t), background var(--t), border-color var(--t);
+}
+.seg button:hover{color:var(--text)}
+.seg button[aria-pressed="true"]{color:#03150f; background:linear-gradient(180deg,#7ef0dc,#3fd6c0); border-color:rgba(94,234,212,.5); font-weight:600}
+.form-grid{display:grid; gap:10px}
+.fields{display:none; gap:10px; grid-template-columns:1fr 1fr}
+.fields.on{display:grid}
+.fields .full{grid-column:1 / -1}
+.field-l{display:grid; gap:4px; font-size:11px; color:var(--muted)}
+.field-l input,.field-l textarea,.field-l select{width:100%}
+textarea{resize:vertical; min-height:56px}
+.form-foot{display:flex; align-items:center; gap:10px; margin-top:16px; flex-wrap:wrap}
+.form-err{color:var(--danger); font-size:11px; min-height:16px; flex:1 1 180px}
+.req::after{content:" *"; color:var(--danger)}
+.divider{height:1px; background:var(--line); margin:14px 0}
+
+/* ── responsive ────────────────────────────────────────────── */
+@media (max-width:1280px){
+  .kpis{grid-template-columns:repeat(4, minmax(0,1fr))}
+  .kpi.chips{grid-column:1 / -1}
+}
+@media (max-width:1080px){
+  .grid-3{grid-template-columns:repeat(2, minmax(0,1fr))}
+  .graph-wrap{grid-template-columns:minmax(0,1fr)}
+  .side{order:-1}
+  .facts{max-height:220px}
+  .heat-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+  body{font-size:12.5px}
+  .topbar{padding:9px 14px; gap:6px 8px}
+  .brand-s{display:none}
+  .top-actions{gap:6px}
+  .btn{padding:4px 8px; font-size:11px}
+  /* the demo switch keeps only its knob so the action row stays one line */
+  .switch span{display:none}
+  .switch{padding:0}
+  main{padding:14px 14px calc(84px + env(safe-area-inset-bottom))}
+  .banner{margin:10px 14px 0}
+  .kpis{grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px}
+  .kpi{padding:11px 12px}
+  .kpi.chips{grid-column:span 2}
+  .kpi-v{font-size:23px}
+  .grid-3,.grid-2{grid-template-columns:minmax(0,1fr); gap:10px}
+  .tabs{
+    position:fixed; top:auto; bottom:0; left:0; right:0; z-index:30;
+    display:grid; grid-template-columns:repeat(4,1fr); gap:2px;
+    padding:6px 6px calc(6px + env(safe-area-inset-bottom));
+    background:rgba(6,10,18,.97); border-top:1px solid var(--line); border-bottom:0;
+    backdrop-filter:blur(10px);
+  }
+  .tab{flex-direction:column; gap:1px; font-size:10.5px; padding:5px 2px; justify-content:center}
+  .tab .k{display:none}
+
+  /* filter bar: explicit 5-row grid (chips / 重要度 / 从|到 / 搜索 / 重置|总数) so
+     nothing overflows and no row is left half empty at 390px */
+  .filters{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px 10px; padding:9px 10px; align-items:center}
+  .filters > .layer-checks{grid-column:1 / -1; grid-row:1; gap:4px}
+  .layer-checks label{font-size:10.5px; padding:2px 5px; gap:4px}
+  .layer-checks input{width:11px; height:11px}
+  .filters .field{min-width:0; font-size:11px; gap:5px; white-space:nowrap}
+  .filters .field select{flex:0 0 auto; width:auto; min-width:52px}
+  .filters .field input{flex:1 1 auto; min-width:0; width:100%}
+  select,input[type="date"]{padding:4px 6px; font-size:11px}
+  .filters > label.field:nth-of-type(1){grid-column:1 / -1; grid-row:2; justify-self:start}
+  .filters > label.field:nth-of-type(2){grid-column:1; grid-row:3}
+  .filters > label.field:nth-of-type(3){grid-column:2; grid-row:3}
+  .filters > .search{grid-column:1 / -1; grid-row:4; flex:1 1 auto; min-width:0}
+  .filters > #tlReset{grid-column:1; grid-row:5; justify-self:start}
+  .filters > #tlCount{grid-column:2; grid-row:5; text-align:right}
+
+  .tl-viewport{height:calc(100vh - 430px); min-height:264px}
+  /* the row stays one 52px line — ROW_H in the JS — so the virtualizer's
+     fixed-height math holds; on a phone the strength bar and the tag strip
+     are dropped and the delete control stays reachable on the same line */
+  .tl-row{grid-template-columns:44px 12px minmax(0,1fr) auto; height:52px; column-gap:6px; padding:0 10px}
+  .tl-row::before{left:calc(10px + 44px + 6px + 6px)}
+  .tl-row .time{font-size:10px}
+  .tl-row .meta{display:none}
+  .tl-row .side{gap:7px}
+  .tl-row .bar{display:none}
+  .tl-row .val{width:21px; flex:0 0 21px; font-size:9.5px}
+  .stars{font-size:9px; letter-spacing:0}
+  .tl-row .del{padding:1px 5px; font-size:9.5px}
+  .tl-row .ev{font-size:12px}
+  .tl-row.mini{height:36px}
+
+  .graph-box{height:58vh; min-height:340px}
+  .hist-wrap{height:150px}
+  .heat-box{height:240px}
+  .decay-box{height:230px}
+  .sheet{padding:14px}
+  .fields{grid-template-columns:1fr}
+}
+@media (max-width:420px){
+  .kpis{grid-template-columns:repeat(2, minmax(0,1fr))}
+  .kpi.chips{grid-column:span 2}
+}
+@media (prefers-reduced-motion: reduce){
+  .scan::after{animation:none}
+  .view.active{animation:none}
+  *{transition-duration:1ms !important}
+}
+</style>
+</head>
+<body>
+<div class="bg-grid" aria-hidden="true"></div>
+<div class="scan" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="glyph" aria-hidden="true">◈</span>
+    <span class="brand-t">记忆仪表盘</span>
+    <span class="brand-s">deepseek-brain · 五层记忆</span>
+  </div>
+  <div class="top-actions">
+    <span class="pill" id="pill"><span class="dot"></span><span id="pillText">连接中</span></span>
+    <label class="switch" title="切换到内置演示数据">
+      <input type="checkbox" id="demoToggle" aria-label="演示模式">
+      <span>演示模式</span>
+    </label>
+    <button class="btn ghost" id="btnExportJson" title="导出当前状态为 JSON">导出 JSON</button>
+    <button class="btn ghost" id="btnExportMd" title="导出记忆快照 Markdown">导出 Markdown</button>
+    <button class="btn primary" id="btnAdd">＋ 记住</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs" role="tablist" aria-label="视图切换">
+  <button class="tab" role="tab" data-view="overview" aria-selected="true"><span>概览</span><span class="k">1</span></button>
+  <button class="tab" role="tab" data-view="timeline" aria-selected="false"><span>时间线</span><span class="k">2</span></button>
+  <button class="tab" role="tab" data-view="graph" aria-selected="false"><span>知识图谱</span><span class="k">3</span></button>
+  <button class="tab" role="tab" data-view="heatmap" aria-selected="false"><span>衰减热力图</span><span class="k">4</span></button>
+</nav>
+
+<div class="banner" id="banner" hidden>
+  <span aria-hidden="true">⚠</span>
+  <span class="grow" id="bannerText"></span>
+  <button class="x" id="bannerClose" aria-label="关闭提示">✕</button>
+</div>
+
+<main>
+  <!-- ═══ 1. 概览 ═══ -->
+  <section class="view active" id="view-overview" data-view="overview" role="tabpanel" aria-label="概览">
+    <div class="sec-head">
+      <h2>概览</h2>
+      <p class="muted" id="ovMeta">正在读取记忆状态…</p>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="grid-3">
+      <div class="card" id="cardLayers">
+        <div class="card-head"><h3>层级分布</h3><span class="muted small" id="layerTotal">—</span></div>
+        <div class="stack" id="layerStack" aria-label="层级分布条"></div>
+        <ul class="legend" id="layerLegend"></ul>
+      </div>
+
+      <div class="card" id="cardHealth">
+        <div class="card-head"><h3>记忆健康</h3><span class="muted small">强度分布 · strength 0–5</span></div>
+        <div class="hist-wrap"><canvas id="histCanvas"></canvas></div>
+        <div class="health-foot">
+          <button class="btn primary" id="btnSleep">执行睡眠巩固</button>
+          <span class="muted small" id="sleepReport">尚未执行</span>
+        </div>
+      </div>
+
+      <div class="card" id="cardDecayInfo">
+        <div class="card-head"><h3>衰减参数</h3><span class="muted small" id="decayLambda">λ = 0.050</span></div>
+        <div class="kv" id="decayInfo"></div>
+        <div class="divider"></div>
+        <div class="small dim">睡眠巩固把低强度记忆压缩进长期层，剪掉已过期的感觉记忆；被遗忘的条目进入 archive.json。重要度 ≥ 4 的记忆永不遗忘。</div>
+        <div class="sleep-report" id="sleepReportBox" hidden></div>
+      </div>
+    </div>
+
+    <div class="card" id="cardRecent">
+      <div class="card-head">
+        <h3>最近 5 条记忆</h3>
+        <div class="recent-head-right">
+          <span class="muted small num" id="recentMeta">—</span>
+          <button class="btn ghost small" id="btnRecentMore" type="button">查看时间线 →</button>
+        </div>
+      </div>
+      <div class="recent-list" id="recentList"></div>
+    </div>
+  </section>
+
+  <!-- ═══ 2. 时间线 ═══ -->
+  <section class="view" id="view-timeline" data-view="timeline" role="tabpanel" aria-label="时间线">
+    <div class="sec-head">
+      <h2>时间线</h2>
+      <p class="muted" id="tlMeta">按天分组 · 最新在前</p>
+    </div>
+
+    <div class="filters">
+      <div class="layer-checks" id="tlLayers" role="group" aria-label="层级过滤"></div>
+      <label class="field">重要度 ≥
+        <select id="tlImp" aria-label="最低重要度">
+          <option value="1">1</option><option value="2">2</option>
+          <option value="3">3</option><option value="4">4</option><option value="5">5</option>
+        </select>
+      </label>
+      <label class="field">从 <input type="date" id="tlFrom" aria-label="起始日期"></label>
+      <label class="field">到 <input type="date" id="tlTo" aria-label="结束日期"></label>
+      <input type="search" class="search" id="tlSearch" placeholder="搜索事件 / 参与者 / 地点 / 规则" aria-label="搜索记忆">
+      <button class="btn ghost small" id="tlReset">重置</button>
+      <span class="muted small num" id="tlCount">—</span>
+    </div>
+
+    <div class="tl-viewport" id="tlViewport" tabindex="0">
+      <div class="tl-inner" id="tlInner"></div>
+      <div class="empty" id="tlEmpty" hidden>
+        <span class="ico" aria-hidden="true">◌</span>
+        暂无记忆，先让它记住一件事吧
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 3. 知识图谱 ═══ -->
+  <section class="view" id="view-graph" data-view="graph" role="tabpanel" aria-label="知识图谱">
+    <div class="sec-head">
+      <h2>知识图谱</h2>
+      <p class="muted" id="graphMeta">语义三元组 · 主体 → 关系 → 客体</p>
+    </div>
+
+    <div class="graph-wrap">
+      <div class="card graph-card">
+        <div class="card-head">
+          <h3>语义网络</h3>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="badge" id="graphPerf">— fps</span>
+            <span class="badge" id="graphSize">— 节点</span>
+          </div>
+        </div>
+        <div class="canvas-box graph-box" id="graphBox">
+          <canvas id="graphCanvas"></canvas>
+          <div class="graph-hint small"><span>拖拽固定节点</span><span>悬停高亮邻居</span><span>点击查看事实</span><span>双击解除固定</span></div>
+        </div>
+        <div class="legend-inline">
+          <span class="it"><span class="sw" style="background:#34d399;box-shadow:0 0 8px #34d399"></span>主体</span>
+          <span class="it"><span class="sw" style="background:#67e8f9;box-shadow:0 0 8px #67e8f9"></span>客体</span>
+          <span class="it"><span class="sw" style="background:#fbbf24;box-shadow:0 0 8px #fbbf24"></span>其他（双向出现）</span>
+          <span class="it"><span class="dash"></span>[已修正] 虚线边</span>
+          <span class="it dim">节点大小 = 度数</span>
+        </div>
+      </div>
+
+      <aside class="card side">
+        <div class="card-head">
+          <h3>节点事实</h3>
+          <button class="btn ghost small" id="btnUnpinAll" title="解除所有已固定的节点">重置布局</button>
+        </div>
+        <div class="facts" id="nodeFacts">
+          <p class="muted small" style="margin:0">点击图中节点，查看它参与的语义事实。</p>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ═══ 4. 衰减热力图 ═══ -->
+  <section class="view" id="view-heatmap" data-view="heatmap" role="tabpanel" aria-label="衰减热力图">
+    <div class="sec-head">
+      <h2>衰减热力图</h2>
+      <p class="muted" id="heatMeta">近 30 天 · 按层统计每日新建记忆</p>
+    </div>
+
+    <div class="heat-grid">
+      <div class="card">
+        <div class="card-head"><h3>每日新增 × 层级</h3><span class="muted small" id="heatScale">—</span></div>
+        <div class="canvas-box heat-box"><canvas id="heatCanvas"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>衰减曲线</h3><span class="muted small" id="curveMeta">—</span></div>
+        <div class="canvas-box decay-box"><canvas id="decayCanvas"></canvas></div>
+        <ul class="crossings" id="crossings"></ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="tip" id="tip" hidden></div>
+
+<!-- ═══ 记住一件事 ═══ -->
+<div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="backdrop" id="modalBackdrop"></div>
+  <form class="sheet" id="addForm" novalidate>
+    <h3 id="modalTitle">记住一件事</h3>
+    <p class="sub">写入后会按重要度参与衰减：strength = importance × exp(−λ · days)</p>
+
+    <div class="seg" id="layerSeg" role="group" aria-label="记忆层级">
+      <button type="button" data-layer="episodic" aria-pressed="true">情景记忆</button>
+      <button type="button" data-layer="semantic" aria-pressed="false">语义记忆</button>
+      <button type="button" data-layer="procedural" aria-pressed="false">程序记忆</button>
+    </div>
+
+    <div class="form-grid">
+      <div class="fields on" data-fields="episodic">
+        <label class="field-l full req">事件
+          <input type="text" name="event" placeholder="和张伟在望京开会" autocomplete="off">
+        </label>
+        <label class="field-l">参与者（逗号分隔）
+          <input type="text" name="participants" placeholder="张伟, 米沙" autocomplete="off">
+        </label>
+        <label class="field-l">地点
+          <input type="text" name="place" placeholder="望京" autocomplete="off">
+        </label>
+        <label class="field-l">情绪
+          <input type="text" name="emotion" placeholder="紧张" autocomplete="off" list="emoList">
+          <datalist id="emoList">
+            <option value="平静"></option><option value="轻松"></option><option value="专注"></option>
+            <option value="焦虑"></option><option value="紧张"></option><option value="兴奋"></option>
+            <option value="疲惫"></option><option value="满足"></option><option value="怀念"></option>
+            <option value="警惕"></option><option value="温暖"></option><option value="愉快"></option>
+          </datalist>
+        </label>
+        <label class="field-l full">细节
+          <textarea name="detail" placeholder="讨论了排期与验收标准"></textarea>
+        </label>
+      </div>
+
+      <div class="fields" data-fields="semantic">
+        <label class="field-l req">主体
+          <input type="text" name="subject" placeholder="用户" autocomplete="off">
+        </label>
+        <label class="field-l req">关系
+          <input type="text" name="relation" placeholder="职业" autocomplete="off">
+        </label>
+        <label class="field-l full req">客体
+          <input type="text" name="object" placeholder="产品设计师" autocomplete="off">
+        </label>
+      </div>
+
+      <div class="fields" data-fields="procedural">
+        <label class="field-l full req">规则
+          <input type="text" name="rule" placeholder="回答前先给结论" autocomplete="off">
+        </label>
+      </div>
+
+      <label class="field-l">重要度 1–5
+        <select name="importance" aria-label="重要度">
+          <option value="1">1 · 转瞬即逝</option>
+          <option value="2">2 · 轻微</option>
+          <option value="3" selected>3 · 一般</option>
+          <option value="4">4 · 重要</option>
+          <option value="5">5 · 核心</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="form-foot">
+      <span class="form-err" id="formErr"></span>
+      <button type="button" class="btn ghost" id="btnCancel">取消</button>
+      <button type="submit" class="btn primary" id="btnSubmit">写入记忆</button>
+    </div>
+  </form>
+</div>
+
+<!-- Demo dataset (JSON, not executable): 12 episodic + 4 semantic + 2 procedural + 2 sensory.
+     Timestamps are offsets in hours from load time so the set always spans the last 14 days. -->
+<script type="application/json" id="demo-spec">
+{
+  "lambda": 0.05,
+  "topics": ["记忆仪表盘", "项目排期", "睡眠巩固", "西湖散步"],
+  "episodic": [
+    { "id": "demo-ep-1", "hoursAgo": 2, "event": "和张伟在望京开排期会", "participants": ["张伟"], "place": "望京", "emotion": "紧张", "importance": 4, "detail": "确认记忆模块里程碑：本周仪表盘、下周联调。" },
+    { "id": "demo-ep-2", "hoursAgo": 9, "event": "给铃讲解记忆衰减公式", "participants": ["铃"], "place": "Random Play 门店", "emotion": "轻松", "importance": 3, "detail": "用曲线解释 strength = importance × exp(−λ·days)。" },
+    { "id": "demo-ep-3", "hoursAgo": 20, "event": "深夜调试三维场景卡顿", "participants": ["哲"], "place": "工作室", "emotion": "疲惫", "importance": 5, "detail": "定位到每帧重建几何体，帧率从 22 回到 60。" },
+    { "id": "demo-ep-4", "hoursAgo": 30, "event": "在楼下便利店买了冰美式", "participants": [], "place": "罗森便利店", "emotion": "平静", "importance": 1, "detail": "顺手补了一盒酸奶。" },
+    { "id": "demo-ep-5", "hoursAgo": 46, "event": "插件 v1.0 的交接演示", "participants": ["米沙"], "place": "绳网技术频道", "emotion": "兴奋", "importance": 5, "detail": "五层记忆的持久化路径全部打通。" },
+    { "id": "demo-ep-6", "hoursAgo": 58, "event": "和母亲通电话", "participants": ["母亲"], "place": "家", "emotion": "温暖", "importance": 4, "detail": "她说降温了，让我把厚外套找出来。" },
+    { "id": "demo-ep-7", "hoursAgo": 72, "event": "读完《认知架构》第四章", "participants": [], "place": "书房", "emotion": "专注", "importance": 3, "detail": "工作记忆容量 7±2 的经典结论又被引用了一次。" },
+    { "id": "demo-ep-8", "hoursAgo": 96, "event": "复盘会：测试环境不稳定", "participants": ["张伟", "米沙"], "place": "望京", "emotion": "焦虑", "importance": 4, "detail": "排期顺延到周五，先补一层回归用例。" },
+    { "id": "demo-ep-9", "hoursAgo": 120, "event": "周末去西湖边散步", "participants": ["铃"], "place": "西湖", "emotion": "愉快", "importance": 2, "detail": "断桥人太多，改道走了北山街。" },
+    { "id": "demo-ep-10", "hoursAgo": 168, "event": "重写 HDD 索引校验层", "participants": ["哲"], "place": "HDD 机房", "emotion": "警惕", "importance": 5, "detail": "补了一层校验，避免索引再次被外部覆写。" },
+    { "id": "demo-ep-11", "hoursAgo": 240, "event": "整理上一季度的照片", "participants": [], "place": "家", "emotion": "怀念", "importance": 2, "detail": "挑出 40 张，准备打印。" },
+    { "id": "demo-ep-12", "hoursAgo": 312, "event": "第一次跑通睡眠巩固流程", "participants": ["哲"], "place": "工作室", "emotion": "满足", "importance": 4, "detail": "迁移 2 条、压缩 5 条、剪枝 1 条。" }
+  ],
+  "semantic": [
+    { "id": "demo-sem-1", "hoursAgo": 100, "subject": "用户", "relation": "职业", "object": "产品设计师", "status": "active", "importance": 4, "supersedes": "demo-sem-3" },
+    { "id": "demo-sem-2", "hoursAgo": 150, "subject": "用户", "relation": "居住城市", "object": "杭州", "status": "active", "importance": 3, "supersedes": null },
+    { "id": "demo-sem-3", "hoursAgo": 200, "subject": "用户", "relation": "职业", "object": "设计师", "status": "corrected", "importance": 3, "supersedes": null },
+    { "id": "demo-sem-4", "hoursAgo": 260, "subject": "法厄同", "relation": "协作伙伴", "object": "Fairy", "status": "active", "importance": 5, "supersedes": null }
+  ],
+  "procedural": [
+    { "id": "demo-pro-1", "hoursAgo": 60, "rule": "回答前先给结论，再补细节", "importance": 4, "hits": 12 },
+    { "id": "demo-pro-2", "hoursAgo": 180, "rule": "涉及排期先确认时区与截止日", "importance": 3, "hits": 5 }
+  ],
+  "sensory": [
+    { "id": "demo-sen-1", "hoursAgo": 1.5, "text": "明天下午三点和张伟在望京开会", "importance": 2, "participants": ["张伟"], "place": "望京" },
+    { "id": "demo-sen-2", "hoursAgo": 0.4, "text": "主人问起记忆仪表盘什么时候能看", "importance": 2, "participants": [], "place": "" }
+  ]
+}
+</script>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ══════════════════════════════════════════════════════════
+     0. Constants & tiny helpers
+     The whole app lives in one IIFE; every module below is a
+     plain function declaration so hoisting keeps init simple.
+     ══════════════════════════════════════════════════════════ */
+  var VIEWS = ['overview', 'timeline', 'graph', 'heatmap'];
+  var LAYERS = ['sensory', 'working', 'episodic', 'semantic', 'procedural'];
+  var LAYER_CN = { sensory: '感觉记忆', working: '工作记忆', episodic: '情景记忆', semantic: '语义记忆', procedural: '程序记忆' };
+  var LAYER_COLOR = { sensory: '#67e8f9', working: '#a78bfa', episodic: '#f472b6', semantic: '#34d399', procedural: '#fbbf24' };
+  var FORGET_THRESHOLD = 0.5;
+  /* lib/episodic.js: importance >= PINNED_IMPORTANCE is never forgotten.
+     The decay panel must not promise a forgetting day for those curves. */
+  var PINNED_IMPORTANCE = 4;
+  var POLL_MS = 8000;
+
+  var NF = new Intl.NumberFormat('zh-CN');
+  var NF1 = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+  function $(sel, root) { return (root || document).querySelector(sel); }
+  function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+  function fmtN(v) { return NF.format(Number(v) || 0); }
+  function fmt1(v) { return NF1.format(Number(v) || 0); }
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function num(v, dflt) { var x = Number(v); return isFinite(x) ? x : (dflt || 0); }
+  function toDate(v) { var d = v instanceof Date ? v : new Date(v); return isNaN(d.getTime()) ? null : d; }
+  function fmtDT(v) { var d = toDate(v); return d ? pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) : '--'; }
+  function fmtD(v) { var d = toDate(v); return d ? pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) : '--'; }
+  function dayKey(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+  function dayStart(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  function startOfToday() { return dayStart(new Date()); }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function pct(part, whole) { return whole > 0 ? (part / whole) * 100 : 0; }
+
+  /* HiDPI canvas: size the backing store to devicePixelRatio and hand back a
+     CSS-pixel coordinate system, so all drawing code stays resolution-agnostic. */
+  function fitCanvas(cv) {
+    if (!cv || !cv.isConnected) return null;
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return null;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    var pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+    if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+    var ctx = cv.getContext('2d');
+    if (!ctx) return null;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    return { ctx: ctx, w: w, h: h, dpr: dpr };
+  }
+  var resizeHooks = [];
+  function observeResize(el, fn) {
+    if (!el || !fn) return;
+    var raf = 0;
+    function run() { if (raf) return; raf = requestAnimationFrame(function () { raf = 0; try { fn(); } catch (e) { /* canvas transient */ } }); }
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(run); ro.observe(el); resizeHooks.push(ro);
+    }
+    window.addEventListener('resize', run);
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     1. State
+     ══════════════════════════════════════════════════════════ */
+  var S = {
+    lambda: 0.05,
+    regions: {},
+    stats: { total: 0, addedToday: 0, forgotten: 0, consolidated: 0, activeTopics: [], layers: {} },
+    sensory: [],
+    working: { capacity: 7, stack: [] },
+    episodic: [],
+    semantic: [],
+    procedural: [],
+    flat: [],
+    generatedAt: null,
+    mode: 'loading',      /* loading | live | demo */
+    demoOverride: false,  /* user-forced demo via the toggle */
+    demoState: null,      /* cached demo model: mutations persist until leaving demo */
+    error: null,
+    bannerShown: false
+  };
+
+  var DEMO_SPEC = JSON.parse($('#demo-spec').textContent);
+
+  function defaultRegions() {
+    var out = {};
+    LAYERS.forEach(function (k) { out[k] = { label: LAYER_CN[k], count: 0, color: LAYER_COLOR[k] }; });
+    return out;
+  }
+
+  function computeStrength(item, layer) {
+    var given = Number(item.strength);
+    if (isFinite(given) && item.strength !== null && given >= 0) return given;
+    var imp = num(item.importance, 3) || 3;
+    var d = toDate(item.ts);
+    if (!d) return imp;
+    var days = Math.max(0, (Date.now() - d.getTime()) / 86400000);
+    return imp * Math.exp(-S.lambda * days);
+  }
+
+  /* Demo model: identical 20-item spec as the 3-D app. Timestamps are relative
+     offsets so the set always spans the last 14 days; strengths are derived with
+     the same decay formula the host uses. */
+  function buildDemoState() {
+    var now = Date.now();
+    var L = num(DEMO_SPEC.lambda, 0.05) || 0.05;
+    function tsOf(hoursAgo) { return new Date(now - Math.round(num(hoursAgo, 1) * 3600000)).toISOString(); }
+    function strengthOf(importance, hoursAgo) {
+      return Math.round(importance * Math.exp(-L * (num(hoursAgo, 0) / 24)) * 100) / 100;
+    }
+
+    var episodic = (DEMO_SPEC.episodic || []).map(function (it) {
+      var imp = clamp(num(it.importance, 3), 1, 5);
+      return {
+        id: it.id, ts: tsOf(it.hoursAgo), event: it.event,
+        participants: it.participants || [], place: it.place || '',
+        emotion: it.emotion || '', importance: imp,
+        strength: strengthOf(imp, it.hoursAgo), detail: it.detail || '', source: 'demo'
+      };
+    });
+
+    var semantic = (DEMO_SPEC.semantic || []).map(function (it) {
+      var imp = clamp(num(it.importance, 3), 1, 5);
+      return {
+        id: it.id, ts: tsOf(it.hoursAgo), subject: it.subject, relation: it.relation, object: it.object,
+        status: it.status === 'corrected' ? 'corrected' : 'active', importance: imp,
+        strength: strengthOf(imp, it.hoursAgo), supersedes: it.supersedes || null, source: 'demo'
+      };
+    });
+
+    var procedural = (DEMO_SPEC.procedural || []).map(function (it) {
+      var imp = clamp(num(it.importance, 3), 1, 5);
+      return {
+        id: it.id, ts: tsOf(it.hoursAgo), rule: it.rule, importance: imp,
+        strength: strengthOf(imp, it.hoursAgo), hits: num(it.hits, 0), source: 'demo'
+      };
+    });
+
+    var sensory = (DEMO_SPEC.sensory || []).map(function (it) {
+      var imp = clamp(num(it.importance, 2), 1, 5);
+      var ts = tsOf(it.hoursAgo);
+      return {
+        id: it.id, ts: ts, text: it.text,
+        entities: {
+          people: it.participants || [], times: [], numbers: [],
+          places: it.place ? [it.place] : [], urls: [], emotions: []
+        },
+        attended: true,
+        expiresAt: new Date(new Date(ts).getTime() + 180000).toISOString(),
+        importance: imp, strength: strengthOf(imp, it.hoursAgo), source: 'demo'
+      };
+    });
+
+    var state = {
+      lambda: L, generatedAt: new Date(now).toISOString(),
+      sensory: sensory, working: { capacity: 7, stack: [] },
+      episodic: episodic, semantic: semantic, procedural: procedural,
+      regions: defaultRegions(),
+      stats: {
+        total: episodic.length + semantic.length + procedural.length + sensory.length,
+        addedToday: 0, forgotten: 9, consolidated: 3,
+        activeTopics: (DEMO_SPEC.topics || []).slice(0, 5),
+        layers: {}
+      }
+    };
+    recount(state);
+    return state;
+  }
+
+  /* Aggregates that the API normally supplies. Recomputing on the client keeps
+     demo mode (and any optimistic local mutation) internally consistent. */
+  function recount(state) {
+    var st = state.stats || (state.stats = {});
+    var layers = { sensory: state.sensory.length, working: (state.working && state.working.stack ? state.working.stack.length : 0), episodic: state.episodic.length, semantic: state.semantic.length, procedural: state.procedural.length };
+    st.layers = layers;
+    st.total = layers.sensory + layers.working + layers.episodic + layers.semantic + layers.procedural;
+
+    var today = startOfToday().getTime();
+    var added = 0;
+    [].concat(state.sensory, state.episodic, state.semantic, state.procedural).forEach(function (it) {
+      var d = toDate(it.ts);
+      if (d && dayStart(d).getTime() === today) added++;
+    });
+    if (!st.addedToday || st.addedToday !== added) st.addedToday = added;
+
+    /* Fallback topic chips: the most frequent participants / places / entities. */
+    if (!st.activeTopics || !st.activeTopics.length) {
+      var freq = Object.create(null);
+      state.episodic.forEach(function (it) {
+        (it.participants || []).forEach(function (p) { if (p) freq[p] = (freq[p] || 0) + 1; });
+        if (it.place) freq[it.place] = (freq[it.place] || 0) + 1;
+      });
+      state.semantic.forEach(function (it) {
+        if (it.subject) freq[it.subject] = (freq[it.subject] || 0) + 1;
+        if (it.object) freq[it.object] = (freq[it.object] || 0) + 1;
+      });
+      st.activeTopics = Object.keys(freq).sort(function (a, b) { return freq[b] - freq[a]; }).slice(0, 5);
+    }
+    state.regions = state.regions || {};
+    LAYERS.forEach(function (k) {
+      var r = state.regions[k] || (state.regions[k] = { label: LAYER_CN[k], color: LAYER_COLOR[k] });
+      r.label = r.label || LAYER_CN[k];
+      r.color = r.color || LAYER_COLOR[k];
+      r.count = layers[k];
+    });
+    return state;
+  }
+
+  function normalize(raw) {
+    var state = {
+      lambda: num(raw.lambda, 0.05) || 0.05,
+      generatedAt: raw.generatedAt || new Date().toISOString(),
+      sensory: Array.isArray(raw.sensory) ? raw.sensory : [],
+      working: raw.working && typeof raw.working === 'object' ? raw.working : { capacity: 7, stack: [] },
+      episodic: Array.isArray(raw.episodic) ? raw.episodic : [],
+      semantic: Array.isArray(raw.semantic) ? raw.semantic : [],
+      procedural: Array.isArray(raw.procedural) ? raw.procedural : [],
+      regions: raw.regions && typeof raw.regions === 'object' ? raw.regions : {},
+      stats: Object.assign({ forgotten: 0, consolidated: 0, addedToday: 0, activeTopics: [], layers: {} },
+        raw.stats && typeof raw.stats === 'object' ? raw.stats : {})
+    };
+    return recount(state);
+  }
+
+  function applyState(state) {
+    S.lambda = state.lambda;
+    S.regions = state.regions || defaultRegions();
+    S.stats = state.stats || S.stats;
+    S.sensory = state.sensory || [];
+    S.working = state.working || { capacity: 7, stack: [] };
+    S.episodic = state.episodic || [];
+    S.semantic = state.semantic || [];
+    S.procedural = state.procedural || [];
+    S.generatedAt = state.generatedAt;
+    rebuildIndex();
+  }
+
+  /* One flat index drives the KPI average, the histogram, the heatmap and the
+     timeline — computed once per state change instead of per render. */
+  function rebuildIndex() {
+    var out = [];
+    function push(layer, item) {
+      if (!item || !item.id) return;
+      out.push({ layer: layer, item: item, ts: toDate(item.ts), strength: computeStrength(item, layer), importance: num(item.importance, 3) });
+    }
+    S.episodic.forEach(function (it) { push('episodic', it); });
+    S.semantic.forEach(function (it) { push('semantic', it); });
+    S.procedural.forEach(function (it) { push('procedural', it); });
+    S.sensory.forEach(function (it) { push('sensory', it); });
+    (S.working.stack || []).forEach(function (it, i) {
+      push('working', { id: it.id || ('wk-local-' + i), ts: it.ts, title: it.title, importance: num(it.importance, 3), strength: it.strength });
+    });
+    S.flat = out;
+  }
+
+  function avgImportance() {
+    var sum = 0, n = 0;
+    S.flat.forEach(function (r) { if (r.importance > 0) { sum += r.importance; n++; } });
+    return n ? sum / n : 0;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     2. Networking, polling, demo fallback
+     Relative paths only: the page is served at
+     /deepseek-brain/dashboard.html, so "api/state" resolves to
+     /deepseek-brain/api/state. Every failure path ends in demo
+     mode plus ONE banner — no console noise.
+     ══════════════════════════════════════════════════════════ */
+  function api(path, opts) {
+    var cfg = Object.assign({ cache: 'no-store' }, opts || {});
+    var timer = 0, ctl = null;
+    if (window.AbortController) {
+      ctl = new AbortController();
+      cfg.signal = ctl.signal;
+      timer = setTimeout(function () { try { ctl.abort(); } catch (e) {} }, 7000);
+    }
+    if (cfg.body && typeof cfg.body !== 'string') cfg.body = JSON.stringify(cfg.body);
+    cfg.headers = Object.assign({ 'Content-Type': 'application/json' }, cfg.headers || {});
+    return fetch(path, cfg).then(function (res) {
+      if (timer) clearTimeout(timer);
+      return res.text().then(function (txt) {
+        var data = null;
+        try { data = JSON.parse(txt); } catch (e) { data = null; }
+        if (!res.ok) {
+          var m = data && data.error && data.error.message;
+          throw new Error(m || ('HTTP ' + res.status));
+        }
+        if (!data) throw new Error('响应不是有效 JSON');
+        if (data.ok === false) throw new Error((data.error && data.error.message) || '请求被拒绝');
+        return data;
+      });
+    }, function (err) {
+      if (timer) clearTimeout(timer);
+      throw err;
+    });
+  }
+
+  function setPill() {
+    var pill = $('#pill'), txt = $('#pillText');
+    if (!pill || !txt) return;
+    pill.classList.remove('live', 'offline');
+    if (S.mode === 'live') { pill.classList.add('live'); txt.textContent = '实时'; }
+    else if (S.mode === 'demo') { pill.classList.add('offline'); txt.textContent = '离线演示'; }
+    else { txt.textContent = '连接中'; }
+  }
+
+  function showBanner(msg) {
+    var el = $('#banner');
+    if (!el) return;
+    $('#bannerText').textContent = msg;
+    el.hidden = false;
+    S.bannerShown = true;
+  }
+  function hideBanner() {
+    var el = $('#banner');
+    if (el) el.hidden = true;
+    S.bannerShown = false;
+  }
+
+  function enterDemo(reason, fromFailure) {
+    S.mode = 'demo';
+    if (!S.demoState) S.demoState = buildDemoState();
+    applyState(S.demoState);
+    setPill();
+    if (fromFailure && !S.bannerShown) {
+      showBanner(reason || '无法连接 host API，已切换到内置演示数据；写入仅保存在内存中。');
+    }
+    $('#demoToggle').checked = !!S.demoOverride;
+    renderAll();
+  }
+
+  function refresh() {
+    if (S.demoOverride) {
+      enterDemo('', false);
+      return Promise.resolve();
+    }
+    return api('api/state').then(function (raw) {
+      S.mode = 'live';
+      S.error = null;
+      S.demoState = null;
+      var state = normalize(raw);
+      applyState(state);
+      setPill();
+      hideBanner();
+      renderAll();
+    }).catch(function (err) {
+      var msg = (err && err.message) || '网络错误';
+      S.error = msg;
+      if (!S.demoOverride) enterDemo('无法连接 host API（' + msg + '），已切换到内置演示数据。', true);
+    });
+  }
+
+  function pollTick() {
+    if (document.visibilityState === 'hidden') return;   /* paused while tab hidden */
+    if (S.demoOverride) return;
+    refresh();
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     3. Overview: KPI cards, layer distribution, health, decay info
+     ══════════════════════════════════════════════════════════ */
+  function kpiCard(key, label, value, sub, extraClass) {
+    return '<div class="card kpi ' + (extraClass || '') + '" data-kpi="' + key + '">' +
+      '<div class="kpi-l">' + esc(label) + '</div>' +
+      '<div class="kpi-v num">' + value + '</div>' +
+      '<div class="kpi-s">' + (sub || '') + '</div>' +
+      '</div>';
+  }
+
+  function renderKPIs() {
+    var host = $('#kpis');
+    if (!host) return;
+    var st = S.stats || {};
+    var avg = avgImportance();
+    var topics = (st.activeTopics || []).slice(0, 6);
+    var chips = topics.length
+      ? topics.map(function (t) { return '<span class="chip">' + esc(t) + '</span>'; }).join('')
+      : '<span class="muted small">暂无活跃主题</span>';
+
+    host.innerHTML =
+      kpiCard('total', '总记忆数', fmtN(st.total), '五层合计 · 衰减中') +
+      kpiCard('addedToday', '今日新增', fmtN(st.addedToday), '本地日界 00:00 起') +
+      kpiCard('forgotten', '遗忘压缩数', fmtN(st.forgotten), '睡眠巩固 ' + fmtN(st.consolidated) + ' 次') +
+      kpiCard('avgImp', '平均重要度', avg ? fmt1(avg) : '—', '重要度 1–5 均值') +
+      '<div class="card kpi chips" data-kpi="topics">' +
+        '<div class="kpi-l">活跃主题</div>' +
+        '<div class="chips-row">' + chips + '</div>' +
+      '</div>';
+
+    var meta = $('#ovMeta');
+    if (meta) {
+      meta.textContent = (S.mode === 'live' ? '实时数据' : (S.mode === 'demo' ? '演示数据' : '读取中')) +
+        ' · 更新于 ' + fmtDT(S.generatedAt || new Date()) +
+        ' · λ=' + num(S.lambda, 0.05).toFixed(2);
+    }
+    var lam = $('#decayLambda');
+    if (lam) lam.textContent = 'λ = ' + num(S.lambda, 0.05).toFixed(3);
+  }
+
+  function flashKpi(key) {
+    var card = $('[data-kpi="' + key + '"]');
+    if (!card) return;
+    card.classList.remove('flash');
+    void card.offsetWidth;    /* restart the CSS animation */
+    card.classList.add('flash');
+    setTimeout(function () { card.classList.remove('flash'); }, 950);
+  }
+
+  function renderLayers() {
+    var counts = (S.stats && S.stats.layers) || {};
+    var total = 0;
+    LAYERS.forEach(function (k) { total += num(counts[k], 0); });
+
+    var stack = $('#layerStack');
+    var legend = $('#layerLegend');
+    if (!stack || !legend) return;
+    stack.innerHTML = LAYERS.map(function (k) {
+      var c = num(counts[k], 0);
+      var w = pct(c, total);
+      var color = (S.regions[k] && S.regions[k].color) || LAYER_COLOR[k];
+      return '<div class="seg" style="width:' + w.toFixed(3) + '%;background:' + esc(color) + ';box-shadow:0 0 12px -2px ' + esc(color) + '" ' +
+        'title="' + esc(LAYER_CN[k]) + ' · ' + fmtN(c) + ' 条 · ' + w.toFixed(1) + '%"></div>';
+    }).join('');
+
+    legend.innerHTML = LAYERS.map(function (k) {
+      var c = num(counts[k], 0);
+      var color = (S.regions[k] && S.regions[k].color) || LAYER_COLOR[k];
+      return '<li><span class="sw" style="background:' + esc(color) + ';color:' + esc(color) + '"></span>' +
+        '<span class="nm">' + esc(LAYER_CN[k]) + '</span>' +
+        '<span class="ct">' + fmtN(c) + '</span>' +
+        '<span class="pc">' + pct(c, total).toFixed(0) + '%</span></li>';
+    }).join('');
+
+    var lbl = $('#layerTotal');
+    if (lbl) lbl.textContent = '共 ' + fmtN(total) + ' 条';
+  }
+
+  function renderDecayInfo() {
+    var box = $('#decayInfo');
+    if (!box) return;
+    var lam = num(S.lambda, 0.05);
+    var halfLife = Math.LN2 / (lam || 0.05);
+    var strong = 0, weak = 0, pinned = 0;
+    S.flat.forEach(function (r) {
+      if (r.importance >= PINNED_IMPORTANCE) pinned++;
+      if (r.strength >= FORGET_THRESHOLD) strong++; else weak++;
+    });
+    var rows = [
+      ['衰减常数 λ', lam.toFixed(3)],
+      ['半衰期', fmt1(halfLife) + ' 天'],
+      ['遗忘阈值', FORGET_THRESHOLD.toFixed(1)],
+      ['有效记忆', fmtN(strong) + ' / ' + fmtN(S.flat.length)],
+      ['低于阈值', fmtN(weak)],
+      ['永不遗忘', fmtN(pinned) + ' 条 · 重要度 ≥ 4'],
+      ['累计遗忘', fmtN(S.stats.forgotten)]
+    ];
+    box.innerHTML = rows.map(function (r) {
+      return '<div class="row"><span>' + esc(r[0]) + '</span><b>' + esc(r[1]) + '</b></div>';
+    }).join('');
+  }
+
+  /* strength histogram: five buckets 0–1 … 4–5, plus the 0.5 forget threshold */
+  function histBuckets() {
+    var buckets = [0, 0, 0, 0, 0];
+    S.flat.forEach(function (r) {
+      var i = clamp(Math.floor(clamp(r.strength, 0, 4.999)), 0, 4);
+      buckets[i]++;
+    });
+    return buckets;
+  }
+
+  function drawHistogram() {
+    var cv = $('#histCanvas');
+    var box = fitCanvas(cv);
+    if (!box) return;
+    var ctx = box.ctx, w = box.w, h = box.h;
+    var buckets = histBuckets();
+    var max = Math.max.apply(null, buckets.concat([1]));
+    /* padT leaves a dedicated band at the top for the 遗忘阈值 marker, so its
+       label can never land on top of a bar or on the bucket labels */
+    var padL = 6, padR = 6, padT = 32, padB = 22;
+    var plotW = w - padL - padR, plotH = h - padT - padB;
+    var gap = Math.max(6, plotW * 0.035);
+    var bw = (plotW - gap * 4) / 5;
+
+    ctx.font = '10px ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+
+    for (var i = 0; i < 5; i++) {
+      var x = padL + i * (bw + gap);
+      var ratio = buckets[i] / max;
+      var bh = Math.max(buckets[i] > 0 ? 3 : 0, ratio * plotH);
+      var y = padT + plotH - bh;
+
+      var grad = ctx.createLinearGradient(0, y, 0, padT + plotH);
+      grad.addColorStop(0, 'rgba(94,234,212,.92)');
+      grad.addColorStop(0.55, 'rgba(56,189,248,.5)');
+      grad.addColorStop(1, 'rgba(56,189,248,.10)');
+      ctx.fillStyle = ratio > 0.85 ? 'rgba(251,191,36,.85)' : grad;
+      if (ratio > 0.85) ctx.fillStyle = 'rgba(251,191,36,.9)';
+
+      ctx.beginPath();
+      var rr = Math.min(5, bw / 2);
+      var x0 = x, x1 = x + bw, y1 = padT + plotH, y0 = y;
+      ctx.moveTo(x0 + rr, y0);
+      ctx.lineTo(x1 - rr, y0);
+      ctx.quadraticCurveTo(x1, y0, x1, y0 + rr);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x0, y1);
+      ctx.lineTo(x0, y0 + rr);
+      ctx.quadraticCurveTo(x0, y0, x0 + rr, y0);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(231,238,251,.82)';
+      ctx.fillText(fmtN(buckets[i]), x + bw / 2, Math.max(padT - 6, y - 6));
+
+      ctx.fillStyle = 'rgba(132,150,180,.85)';
+      ctx.fillText(i + '–' + (i + 1), x + bw / 2, padT + plotH + 14);
+    }
+
+    /* baseline */
+    ctx.strokeStyle = 'rgba(148,178,224,.22)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT + plotH + 0.5);
+    ctx.lineTo(w - padR, padT + plotH + 0.5);
+    ctx.stroke();
+
+    /* 遗忘阈值 0.5 — mapped onto the continuous 0–5 strength axis. The label
+       sits in the reserved top band on an opaque chip so it stays readable
+       whatever the bar heights are. */
+    var tx = padL + (FORGET_THRESHOLD / 5) * plotW;
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = 'rgba(251,113,133,.7)';
+    ctx.beginPath();
+    ctx.moveTo(tx, padT - 8);
+    ctx.lineTo(tx, padT + plotH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    var lbl = '0.5 遗忘阈值';
+    ctx.textAlign = 'left';
+    var lw = ctx.measureText(lbl).width;
+    var lx = clamp(tx + 5, padL, w - padR - lw - 6);
+    ctx.fillStyle = 'rgba(9,14,24,.94)';
+    ctx.fillRect(lx - 4, 4, lw + 8, 15);
+    ctx.strokeStyle = 'rgba(251,113,133,.32)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(lx - 3.5, 4.5, lw + 7, 14);
+    ctx.fillStyle = 'rgba(251,143,160,.95)';
+    ctx.fillText(lbl, lx, 15);
+    ctx.textAlign = 'center';
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     4. Sleep consolidation
+     ══════════════════════════════════════════════════════════ */
+  function summarize(report) {
+    var r = report || {};
+    return '迁移 ' + fmtN(r.migrated) + ' 条 · 压缩 ' + fmtN(r.compressed) + ' 条 · 剪枝 ' + fmtN(r.pruned) + ' 条';
+  }
+
+  function showSleepReport(report, note) {
+    var txt = summarize(report) + (note ? '（' + note + '）' : '');
+    var small = $('#sleepReport');
+    if (small) small.textContent = txt;
+    var box = $('#sleepReportBox');
+    if (box) {
+      box.hidden = false;
+      box.textContent = '睡眠巩固 · ' + fmtDT(new Date()) + '\n' + txt;
+    }
+  }
+
+  /* Offline equivalent of POST /api/sleep: migrate strong-but-weak items into
+     their long-term layer, compress weak ones, prune expired sensory traces. */
+  function simulateSleep() {
+    var report = { migrated: 0, compressed: 0, pruned: 0 };
+    var now = Date.now();
+    S.sensory = S.sensory.filter(function (it) {
+      var exp = toDate(it.expiresAt);
+      if (exp && exp.getTime() < now) { report.pruned++; return false; }
+      return true;
+    });
+    [].concat(S.episodic, S.semantic, S.procedural).forEach(function (it) {
+      var str = computeStrength(it, '');
+      if (str < FORGET_THRESHOLD) { report.compressed++; it.strength = Math.min(5, num(it.strength, str) + 0.45); }
+      else if (str >= 3.5 && num(it.importance, 3) >= 4) { report.migrated++; it.strength = Math.min(5, str + 0.2); }
+    });
+    S.stats.consolidated = num(S.stats.consolidated, 0) + 1;
+    recount(S);
+    rebuildIndex();
+    return report;
+  }
+
+  function runSleep() {
+    var btn = $('#btnSleep');
+    if (!btn || btn.disabled) return;
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '巩固中…';
+
+    function finish(report, note) {
+      btn.disabled = false;
+      btn.textContent = label;
+      showSleepReport(report, note);
+    }
+
+    if (S.mode === 'demo' || S.demoOverride) {
+      var rep = simulateSleep();
+      finish(rep, '演示模式 · 仅内存');
+      renderAll();
+      return;
+    }
+    api('api/sleep', { method: 'POST' }).then(function (res) {
+      finish(res.report || {}, '');
+      return refresh().then(function () { flashKpi('forgotten'); });
+    }).catch(function (err) {
+      finish({ migrated: 0, compressed: 0, pruned: 0 }, '失败：' + ((err && err.message) || '未知错误'));
+      showBanner('睡眠巩固失败：' + ((err && err.message) || '网络错误'));
+    });
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     5. Render fan-out
+     ══════════════════════════════════════════════════════════ */
+  function renderAll() {
+    setPill();
+    renderKPIs();
+    renderLayers();
+    renderDecayInfo();
+    renderRecent();
+    if (currentView === 'overview') drawHistogram();
+    renderTimeline();
+    renderGraph();
+    renderHeatmap();
+    renderDecayCurves();
+  }
+
+  /* 最近 5 条记忆 — reuses the timeline row markup (without the delete
+     control) so the overview says what actually landed most recently. */
+  var RECENT_H = 36;
+  function renderRecent() {
+    var host = $('#recentList'), meta = $('#recentMeta');
+    if (!host) return;
+    var rows = S.flat.slice().sort(function (a, b) {
+      return (toDate(b.ts) || 0) - (toDate(a.ts) || 0);
+    }).slice(0, 5);
+    if (!rows.length) {
+      host.style.height = '0px';
+      host.innerHTML = '<div class="empty small muted" style="padding:6px 2px">暂无记忆</div>';
+      if (meta) meta.textContent = '—';
+      return;
+    }
+    host.innerHTML = rows.map(function (r, i) {
+      return rowHtml({ layer: r.layer, item: r.item, ts: r.ts }, i * RECENT_H, true);
+    }).join('');
+    host.style.height = (rows.length * RECENT_H) + 'px';
+    if (meta) {
+      meta.textContent = '共 ' + fmtN(S.flat.length) + ' 条 · 最新 ' +
+        fmtDT(toDate(rows[0].ts) || new Date());
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     6. Timeline — windowed list
+     ──────────────────────────────────────────────────────────
+     Virtualization model: every visible entry (a day header or a
+     memory row) has a FIXED height, so a prefix-sum array of
+     offsets can be built once per state/filter change. Scrolling
+     then binary-searches the offsets for the first entry whose
+     bottom edge is above the viewport, and only that window
+     (plus a small overscan) is written to the DOM, absolutely
+     positioned inside a spacer of total height. With 2,000+ rows
+     we touch ~30 nodes per frame instead of 2,000, so scrolling
+     stays smooth and layout cost stays constant. The tradeoff:
+     rows cannot grow with their text — copy is clipped with
+     ellipsis, which is why the row height is fixed and generous.
+     ══════════════════════════════════════════════════════════ */
+  var ROW_H = 52, DAY_H = 40, OVERSCAN = 480;
+  var TL = {
+    entries: [],
+    offsets: [0],
+    total: 0,
+    filters: {
+      layers: { sensory: false, working: false, episodic: true, semantic: true, procedural: true },
+      imp: 1, q: '', from: '', to: ''
+    },
+    pendingDelete: null,
+    raf: 0
+  };
+
+  function itemText(layer, item) {
+    if (layer === 'episodic') {
+      return [item.event, (item.participants || []).join(' '), item.place, item.emotion, item.detail].join(' ');
+    }
+    if (layer === 'semantic') return [item.subject, item.relation, item.object, item.status].join(' ');
+    if (layer === 'procedural') return [item.rule, item.hits].join(' ');
+    if (layer === 'sensory') {
+      var e = item.entities || {};
+      return [item.text].concat(e.people || [], e.places || []).join(' ');
+    }
+    return [item.title].join(' ');
+  }
+
+  function rowImportance(layer, item) {
+    var v = num(item.importance, layer === 'sensory' ? 2 : 3);
+    return clamp(v, 1, 5);
+  }
+
+  function passesFilters(layer, item) {
+    if (!TL.filters.layers[layer]) return false;
+    if (rowImportance(layer, item) < TL.filters.imp) return false;
+    var d = toDate(item.ts);
+    if (!d) return false;
+    if (TL.filters.from && d.getTime() < new Date(TL.filters.from + 'T00:00:00').getTime()) return false;
+    if (TL.filters.to && d.getTime() > new Date(TL.filters.to + 'T23:59:59').getTime()) return false;
+    if (TL.filters.q) {
+      var q = TL.filters.q;
+      if (itemText(layer, item).toLowerCase().indexOf(q) < 0) return false;
+    }
+    return true;
+  }
+
+  function buildTimeline() {
+    var rows = [];
+    LAYERS.forEach(function (layer) {
+      if (!TL.filters.layers[layer]) return;
+      (layer === 'working' ? (S.working.stack || []) : (S[layer] || [])).forEach(function (item) {
+        if (layer === 'working') item = { id: item.id, ts: item.ts, title: item.title, importance: num(item.importance, 3), strength: item.strength };
+        if (!item || !item.id) return;
+        if (!passesFilters(layer, item)) return;
+        rows.push({ layer: layer, item: item, ts: toDate(item.ts) });
+      });
+    });
+    rows.sort(function (a, b) { return b.ts - a.ts; });
+
+    var entries = [];
+    var lastKey = null, dayBuf = null;
+    rows.forEach(function (r) {
+      var key = dayKey(r.ts);
+      if (key !== lastKey) {
+        dayBuf = { kind: 'day', key: key, date: dayStart(r.ts), count: 0 };
+        entries.push(dayBuf);
+        lastKey = key;
+      }
+      dayBuf.count++;
+      entries.push({ kind: 'row', layer: r.layer, item: r.item, ts: r.ts });
+    });
+
+    var offsets = [0], acc = 0;
+    entries.forEach(function (e) {
+      offsets.push(acc += (e.kind === 'day' ? DAY_H : ROW_H));
+    });
+    TL.entries = entries;
+    TL.offsets = offsets;
+    TL.total = acc;
+  }
+
+  /* first index whose offset is >= y (offsets is strictly increasing) */
+  function lowerBound(y) {
+    var lo = 0, hi = TL.entries.length;
+    while (lo < hi) {
+      var mid = (lo + hi) >> 1;
+      if (TL.offsets[mid + 1] <= y) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+  }
+
+  function dayLabel(d) {
+    var today = dayStart(new Date()).getTime();
+    var dd = dayStart(d).getTime();
+    var wk = '日一二三四五六'.charAt(d.getDay());
+    if (dd === today) return '今天 · 周' + wk;
+    if (dd === today - 86400000) return '昨天 · 周' + wk;
+    return fmtD(d) + ' · 周' + wk;
+  }
+
+  function starsHtml(imp) {
+    var on = '', off = '';
+    for (var i = 1; i <= 5; i++) { if (i <= imp) on += '★'; else off += '★'; }
+    return '<span class="stars" title="重要度 ' + imp + '">' + on + (off ? '<span class="off">' + off + '</span>' : '') + '</span>';
+  }
+
+  /* One row = one line: time · dot · title + tags · stars + strength · delete.
+     `mini` drops the delete control and uses the shorter recent-list row. */
+  function rowHtml(e, top, mini) {
+    var layer = e.layer, it = e.item;
+    var color = (S.regions[layer] && S.regions[layer].color) || LAYER_COLOR[layer];
+    var str = computeStrength(it, layer);
+    var imp = rowImportance(layer, it);
+    var barW = clamp(str / 5, 0, 1) * 100;
+    var barColor = str < FORGET_THRESHOLD ? '#fb7185' : (str < 2 ? '#fbbf24' : color);
+    var meta = [];
+    var title = '';
+
+    if (layer === 'episodic') {
+      title = it.event || '未命名事件';
+      if ((it.participants || []).length) meta.push('👥 ' + esc(it.participants.join('、')));
+      if (it.place) meta.push('📍 ' + esc(it.place));
+      if (it.emotion) meta.push('<span class="tag emo">' + esc(it.emotion) + '</span>');
+    } else if (layer === 'semantic') {
+      title = it.subject + ' · ' + it.relation + ' · ' + it.object;
+      meta.push(it.status === 'corrected' ? '<span class="tag emo">已修正</span>' : '有效');
+    } else if (layer === 'procedural') {
+      title = it.rule || '未命名规则';
+      meta.push('命中 ' + fmtN(it.hits) + ' 次');
+    } else if (layer === 'sensory') {
+      title = it.text || '感官片段';
+      var ents = it.entities || {};
+      if ((ents.people || []).length) meta.push('👥 ' + esc(ents.people.join('、')));
+      if ((ents.places || []).length) meta.push('📍 ' + esc(ents.places.join('、')));
+    } else {
+      title = it.title || '工作记忆';
+      meta.push('容量 ' + fmtN(S.working.capacity || 7));
+    }
+    if (it.detail && layer === 'episodic') meta.push(esc(it.detail).slice(0, 46));
+
+    var d = toDate(e.ts) || new Date();
+    var hhmm = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    var full = fmtDT(d);
+
+    return '<div class="tl-row' + (mini ? ' mini' : '') + '" style="top:' + top + 'px;color:' + esc(color) + '" data-id="' + esc(it.id) + '">' +
+      '<div class="time" title="' + esc(full) + '">' + hhmm + '</div>' +
+      '<div class="dot"></div>' +
+      '<div class="body">' +
+        '<div class="ev" title="' + esc(title) + '">' + esc(title) + '</div>' +
+        '<div class="meta">' +
+          '<span class="tag" title="' + esc(LAYER_CN[layer]) + '" style="color:' + esc(color) + ';border-color:' + esc(color) + '44;background:' + esc(color) + '14">' + esc(LAYER_CN[layer]) + '</span>' +
+          meta.map(function (m) { return '<span>' + m + '</span>'; }).join('') +
+        '</div>' +
+      '</div>' +
+      '<div class="side">' +
+        starsHtml(imp) +
+        '<div class="decay"><div class="bar"><i style="width:' + barW.toFixed(1) + '%;background:' + esc(barColor) + ';box-shadow:0 0 8px -2px ' + esc(barColor) + '"></i></div>' +
+        '<span class="val">' + str.toFixed(1) + '</span></div>' +
+        (mini ? '' : '<button class="del" data-del="' + esc(it.id) + '" type="button">删除</button>') +
+      '</div>' +
+    '</div>';
+  }
+
+  function dayHtml(e, top) {
+    return '<div class="tl-day" style="top:' + top + 'px">' +
+      '<span class="lbl"><b>' + esc(dayLabel(e.date)) + '</b></span>' +
+      '<span class="n num">' + fmtN(e.count) + ' 条</span>' +
+      '<span class="rule"></span></div>';
+  }
+
+  function renderTimelineWindow() {
+    var vp = $('#tlViewport'), inner = $('#tlInner'), empty = $('#tlEmpty');
+    if (!vp || !inner) return;
+
+    if (!TL.entries.length) {
+      inner.innerHTML = '';
+      inner.style.height = '0px';
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+
+    var top = vp.scrollTop;
+    var vh = vp.clientHeight || 480;
+    var startY = Math.max(0, top - OVERSCAN);
+    var endY = top + vh + OVERSCAN;
+    var start = lowerBound(startY);
+    var end = Math.min(TL.entries.length, lowerBound(endY) + 1);
+
+    var out = [];
+    for (var i = start; i < end; i++) {
+      var e = TL.entries[i];
+      var y = TL.offsets[i];
+      out.push(e.kind === 'day' ? dayHtml(e, y) : rowHtml(e, y));
+    }
+    inner.style.height = TL.total + 'px';
+    inner.innerHTML = out.join('');
+
+    /* keep a pending "confirm delete" state visible after a re-render */
+    if (TL.pendingDelete) {
+      var btn = inner.querySelector('[data-del="' + TL.pendingDelete.id.replace(/"/g, '') + '"]');
+      if (btn) { btn.classList.add('confirm'); btn.textContent = '确认删除?'; }
+    }
+  }
+
+  function renderTimeline() {
+    buildTimeline();
+    var total = 0;
+    TL.entries.forEach(function (e) { if (e.kind === 'row') total++; });
+    var count = $('#tlCount');
+    if (count) count.textContent = fmtN(total) + ' / ' + fmtN(S.flat.length) + ' 条';
+
+    var vp = $('#tlViewport');
+    if (vp && vp.scrollTop > Math.max(0, TL.total - vp.clientHeight)) {
+      vp.scrollTop = Math.max(0, TL.total - vp.clientHeight);
+    }
+    renderTimelineWindow();
+  }
+
+  function scheduleTimelineWindow() {
+    if (TL.raf) return;
+    TL.raf = requestAnimationFrame(function () { TL.raf = 0; renderTimelineWindow(); });
+  }
+
+  function buildLayerChecks() {
+    var host = $('#tlLayers');
+    if (!host) return;
+    host.innerHTML = LAYERS.map(function (k) {
+      var color = (S.regions[k] && S.regions[k].color) || LAYER_COLOR[k];
+      return '<label style="color:' + esc(color) + '" class="' + (TL.filters.layers[k] ? 'on' : '') + '">' +
+        '<input type="checkbox" data-layer="' + k + '" ' + (TL.filters.layers[k] ? 'checked' : '') + '>' +
+        esc(LAYER_CN[k]) + '</label>';
+    }).join('');
+  }
+
+  function setDeletePending(id, btn) {
+    if (TL.pendingDelete && TL.pendingDelete.timer) clearTimeout(TL.pendingDelete.timer);
+    TL.pendingDelete = {
+      id: id,
+      timer: setTimeout(function () {
+        TL.pendingDelete = null;
+        renderTimelineWindow();
+      }, 3200)
+    };
+    if (btn) { btn.classList.add('confirm'); btn.textContent = '确认删除?'; }
+  }
+
+  function forgetItem(id, btn) {
+    if (TL.pendingDelete && TL.pendingDelete.id === id) {
+      if (TL.pendingDelete.timer) clearTimeout(TL.pendingDelete.timer);
+      TL.pendingDelete = null;
+    }
+
+    if (S.mode === 'demo' || S.demoOverride) {
+      localRemove(id);
+      flashKpi('total');
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    api('api/forget', { method: 'POST', body: { id: id } }).then(function () {
+      return refresh().then(function () { flashKpi('total'); });
+    }).catch(function (err) {
+      if (btn) { btn.disabled = false; btn.textContent = '删除'; }
+      showBanner('删除失败：' + ((err && err.message) || '网络错误'));
+    });
+  }
+
+  function localRemove(id) {
+    ['sensory', 'episodic', 'semantic', 'procedural'].forEach(function (k) {
+      S[k] = S[k].filter(function (it) { return it.id !== id; });
+      if (S.demoState) S.demoState[k] = S[k];
+    });
+    S.working.stack = (S.working.stack || []).filter(function (it) { return it.id !== id; });
+    if (S.demoState && S.demoState.working) S.demoState.working.stack = S.working.stack;
+    recount(S);
+    rebuildIndex();
+    renderAll();
+  }
+
+  function wireTimeline() {
+    buildLayerChecks();
+
+    var host = $('#tlLayers');
+    if (host) {
+      host.addEventListener('change', function (ev) {
+        var inp = ev.target;
+        if (!inp || !inp.getAttribute('data-layer')) return;
+        var k = inp.getAttribute('data-layer');
+        TL.filters.layers[k] = !!inp.checked;
+        var lab = inp.parentNode;
+        if (lab) lab.classList.toggle('on', !!inp.checked);
+        renderTimeline();
+      });
+    }
+
+    var imp = $('#tlImp');
+    if (imp) imp.addEventListener('change', function () {
+      TL.filters.imp = clamp(num(imp.value, 1), 1, 5);
+      renderTimeline();
+    });
+
+    var from = $('#tlFrom'), to = $('#tlTo');
+    if (from) from.addEventListener('change', function () { TL.filters.from = from.value || ''; renderTimeline(); });
+    if (to) to.addEventListener('change', function () { TL.filters.to = to.value || ''; renderTimeline(); });
+
+    var search = $('#tlSearch');
+    if (search) {
+      var st = 0;
+      search.addEventListener('input', function () {
+        clearTimeout(st);
+        st = setTimeout(function () {
+          TL.filters.q = (search.value || '').trim().toLowerCase();
+          renderTimeline();
+        }, 120);
+      });
+    }
+
+    var reset = $('#tlReset');
+    if (reset) reset.addEventListener('click', function () {
+      TL.filters = { layers: { sensory: false, working: false, episodic: true, semantic: true, procedural: true }, imp: 1, q: '', from: '', to: '' };
+      if (imp) imp.value = '1';
+      if (from) from.value = '';
+      if (to) to.value = '';
+      if (search) search.value = '';
+      buildLayerChecks();
+      renderTimeline();
+    });
+
+    var vp = $('#tlViewport');
+    if (vp) {
+      vp.addEventListener('scroll', scheduleTimelineWindow, { passive: true });
+      observeResize(vp, renderTimelineWindow);
+      vp.addEventListener('click', function (ev) {
+        var btn = ev.target.closest ? ev.target.closest('[data-del]') : null;
+        if (!btn) return;
+        var id = btn.getAttribute('data-del');
+        if (TL.pendingDelete && TL.pendingDelete.id === id) forgetItem(id, btn);
+        else setDeletePending(id, btn);
+      });
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     7. Knowledge graph — custom force simulation on Canvas 2D
+     ──────────────────────────────────────────────────────────
+     subject/object become nodes, relation becomes the labelled
+     edge. Node type: 主体 (subject-only), 客体 (object-only),
+     其他 (appears in both roles). Corrected triples get a dashed
+     edge plus a [已修正] badge; their tooltip carries the prior
+     version, resolved through `supersedes` in either direction.
+
+     Performance: repulsion is a plain O(n²) loop — with the node
+     cap at 200 that is at most ~20k unique pairs per iteration,
+     which costs well under a millisecond; a spatial grid would
+     only start to pay off past ~600 nodes, so we keep the simple
+     loop and run 300 warm-up iterations ONCE (offscreen), then a
+     single iteration per animation frame while alpha decays. The
+     render itself never touches the DOM, so 200 nodes / ~300
+     edges stay far above 30 fps. Nodes are capped by degree so a
+     runaway store cannot push the canvas past the budget.
+     ══════════════════════════════════════════════════════════ */
+  var NODE_CAP = 200;
+  var TYPE_CN = { subject: '主体', object: '客体', other: '其他' };
+  var TYPE_COLOR = { subject: '#34d399', object: '#67e8f9', other: '#fbbf24' };
+
+  var G = {
+    nodes: [], edges: [], byId: Object.create(null),
+    alpha: 0, raf: 0, w: 0, h: 0,
+    hover: null, hoverEdge: null, selected: null, drag: null,
+    fps: 0, frameT: 0, frameN: 0, fpsStamp: 0,
+    badges: [], truncated: 0, warmMs: 0, simFrames: 0, sig: null
+  };
+
+  function findTriple(id) {
+    for (var i = 0; i < S.semantic.length; i++) if (S.semantic[i].id === id) return S.semantic[i];
+    return null;
+  }
+
+  function correctionOf(item) {
+    var succ = null, prev = null;
+    S.semantic.forEach(function (x) {
+      if (x.supersedes === item.id) succ = x;
+    });
+    if (item.supersedes) prev = findTriple(item.supersedes);
+    return { succ: succ, prev: prev };
+  }
+
+  function buildGraph() {
+    var nodes = Object.create(null);
+    var order = [];
+
+    function touch(text, role) {
+      var label = String(text || '').trim();
+      if (!label) return null;
+      var n = nodes[label];
+      if (!n) {
+        n = nodes[label] = { id: label, label: label, asSubject: 0, asObject: 0, degree: 0, x: 0, y: 0, vx: 0, vy: 0, pinned: false, px: null, py: null };
+        order.push(n);
+      }
+      if (role === 's') n.asSubject++; else n.asObject++;
+      return n;
+    }
+
+    var edges = [];
+    S.semantic.forEach(function (it) {
+      var a = touch(it.subject, 's');
+      var b = touch(it.object, 'o');
+      if (!a || !b) return;
+      a.degree++; b.degree++;
+      edges.push({
+        s: a.id, t: b.id, label: it.relation || '相关',
+        corrected: it.status === 'corrected', item: it,
+        id: it.id
+      });
+    });
+
+    var list = order.slice().sort(function (a, b) { return b.degree - a.degree; });
+    G.truncated = Math.max(0, list.length - NODE_CAP);
+    list = list.slice(0, NODE_CAP);
+    var keep = Object.create(null);
+    list.forEach(function (n) {
+      n.type = n.asSubject > 0 && n.asObject > 0 ? 'other' : (n.asSubject > 0 ? 'subject' : 'object');
+      keep[n.id] = true;
+    });
+    var keptEdges = edges.filter(function (e) { return keep[e.s] && keep[e.t]; });
+
+    /* preserve positions / pins across refreshes, keyed by node label */
+    var prevById = G.byId;
+    list.forEach(function (n) {
+      var old = prevById[n.id];
+      if (old) {
+        n.x = old.x; n.y = old.y; n.vx = old.vx; n.vy = old.vy;
+        n.pinned = old.pinned; n.px = old.px; n.py = old.py;
+      }
+    });
+
+    G.nodes = list;
+    G.edges = keptEdges;
+    G.byId = Object.create(null);
+    list.forEach(function (n) { G.byId[n.id] = n; });
+    if (G.selected && !G.byId[G.selected]) { G.selected = null; renderFacts(null); }
+
+    var cv = $('#graphCanvas');
+    var w = (cv && cv.clientWidth) || 880;
+    var h = (cv && cv.clientHeight) || 560;
+    G.w = w; G.h = h;
+
+    layoutInitial();
+
+    /* Topology signature: a 300-iteration warm-up is only worth paying when
+       the graph actually changed. Identical topology (e.g. an 8 s poll with
+       no new triples) just relaxes a little and keeps existing positions. */
+    var sig = list.map(function (n) { return n.id; }).join('|') + '::' + keptEdges.map(function (e) { return e.id; }).join('|');
+    var warm = (G.sig === sig && list.length) ? 40 : 300;
+    G.sig = sig;
+
+    var t0 = performance.now();
+    for (var i = 0; i < warm; i++) simulate(1);
+    G.warmMs = Math.round(performance.now() - t0);
+    G.alpha = Math.max(G.alpha, 0.35);
+
+    var perf = $('#graphPerf');
+    if (perf) perf.textContent = '预热 ' + G.warmMs + ' ms';
+    var size = $('#graphSize');
+    if (size) size.textContent = fmtN(list.length) + ' 节点 / ' + fmtN(keptEdges.length) + ' 边' + (G.truncated ? ' · 截断 ' + fmtN(G.truncated) : '');
+    var meta = $('#graphMeta');
+    if (meta) {
+      meta.textContent = '语义三元组 · ' + fmtN(list.length) + ' 个节点 · ' + fmtN(keptEdges.length) + ' 条关系' +
+        (G.truncated ? '（超过 ' + NODE_CAP + ' 节点已按度数截断）' : '');
+    }
+  }
+
+  function layoutInitial() {
+    var n = G.nodes.length;
+    var cx = G.w / 2, cy = G.h / 2;
+    var r = Math.min(G.w, G.h) * 0.33;
+    G.nodes.forEach(function (node, i) {
+      if (node.pinned) { node.x = num(node.px, cx); node.y = num(node.py, cy); return; }
+      if (isFinite(node.x) && node.x !== 0 && isFinite(node.y) && node.y !== 0) return;
+      var a = (i / Math.max(1, n)) * Math.PI * 2;
+      node.x = cx + Math.cos(a) * r * (0.7 + Math.random() * 0.5);
+      node.y = cy + Math.sin(a) * r * (0.7 + Math.random() * 0.5);
+      node.vx = 0; node.vy = 0;
+    });
+  }
+
+  /* one physics step: O(n²) repulsion + spring + centering + damping */
+  function simulate(steps) {
+    var nodes = G.nodes, edges = G.edges;
+    if (!nodes.length) return;
+    var cx = G.w / 2, cy = G.h / 2;
+    var REP = 5200, REST = 108, SPRING = 0.024, GRAV = 0.0022;
+    for (var s = 0; s < (steps || 1); s++) {
+      var i, j, a, b, dx, dy, d2, d, f;
+      for (i = 0; i < nodes.length; i++) {
+        a = nodes[i];
+        for (j = i + 1; j < nodes.length; j++) {
+          b = nodes[j];
+          dx = b.x - a.x; dy = b.y - a.y;
+          d2 = dx * dx + dy * dy;
+          if (d2 < 0.01) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 0.25; }
+          d = Math.sqrt(d2);
+          f = REP / d2;
+          if (f > 26) f = 26;
+          var ux = dx / d * f, uy = dy / d * f;
+          if (!a.pinned) { a.vx -= ux; a.vy -= uy; }
+          if (!b.pinned) { b.vx += ux; b.vy += uy; }
+        }
+      }
+      for (i = 0; i < edges.length; i++) {
+        var e = edges[i];
+        a = G.byId[e.s]; b = G.byId[e.t];
+        if (!a || !b) continue;
+        dx = b.x - a.x; dy = b.y - a.y;
+        d = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        f = (d - REST) * SPRING;
+        var sx = dx / d * f, sy = dy / d * f;
+        if (!a.pinned) { a.vx += sx; a.vy += sy; }
+        if (!b.pinned) { b.vx -= sx; b.vy -= sy; }
+      }
+      for (i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        if (n.pinned) { n.vx = 0; n.vy = 0; n.x = num(n.px, n.x); n.y = num(n.py, n.y); continue; }
+        n.vx += (cx - n.x) * GRAV;
+        n.vy += (cy - n.y) * GRAV;
+        n.vx *= 0.80; n.vy *= 0.80;
+        n.x += n.vx * (0.55 + G.alpha * 0.9);
+        n.y += n.vy * (0.55 + G.alpha * 0.9);
+        n.x = clamp(n.x, 24, G.w - 24);
+        n.y = clamp(n.y, 24, G.h - 24);
+      }
+      G.alpha *= 0.986;
+      G.simFrames++;
+    }
+  }
+
+  function nodeRadius(n) { return 6 + Math.sqrt(n.degree) * 3.6; }
+
+  function hitNode(x, y) {
+    var best = null, bestD = 1e9;
+    for (var i = 0; i < G.nodes.length; i++) {
+      var n = G.nodes[i];
+      var r = nodeRadius(n) + 5;
+      var dx = x - n.x, dy = y - n.y;
+      var d = Math.sqrt(dx * dx + dy * dy);
+      if (d <= r && d < bestD) { best = n; bestD = d; }
+    }
+    return best;
+  }
+
+  function distToSegment(px, py, x1, y1, x2, y2) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var len2 = dx * dx + dy * dy;
+    if (!len2) return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+    var t = clamp(((px - x1) * dx + (py - y1) * dy) / len2, 0, 1);
+    var qx = x1 + t * dx, qy = y1 + t * dy;
+    return Math.sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy));
+  }
+
+  function hitEdge(x, y) {
+    for (var i = 0; i < G.badges.length; i++) {
+      var b = G.badges[i];
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.edge;
+    }
+    for (var j = 0; j < G.edges.length; j++) {
+      var e = G.edges[j];
+      var a = G.byId[e.s], c = G.byId[e.t];
+      if (!a || !c) continue;
+      if (distToSegment(x, y, a.x, a.y, c.x, c.y) < 7) return e;
+    }
+    return null;
+  }
+
+  function neighborsOf(node) {
+    var set = Object.create(null);
+    if (!node) return set;
+    G.edges.forEach(function (e) {
+      if (e.s === node.id) set[e.t] = true;
+      if (e.t === node.id) set[e.s] = true;
+    });
+    return set;
+  }
+
+  function drawGraph() {
+    var cv = $('#graphCanvas');
+    if (!cv || !cv.clientWidth || !cv.clientHeight) return;
+    var box = fitCanvas(cv);
+    if (!box) return;
+    if (Math.abs(box.w - G.w) > 1 || Math.abs(box.h - G.h) > 1) {
+      var sx = box.w / (G.w || box.w), sy = box.h / (G.h || box.h);
+      G.nodes.forEach(function (n) {
+        n.x = clamp(n.x * sx, 20, box.w - 20);
+        n.y = clamp(n.y * sy, 20, box.h - 20);
+        if (n.pinned) { n.px = n.x; n.py = n.y; }
+      });
+      G.w = box.w; G.h = box.h;
+      G.alpha = Math.max(G.alpha, 0.18);
+    }
+
+    var ctx = box.ctx, w = box.w, h = box.h;
+    var hover = G.hover ? G.byId[G.hover] : null;
+    var nbrs = neighborsOf(hover);
+    var sel = G.selected ? G.byId[G.selected] : null;
+
+    ctx.lineCap = 'round';
+    G.badges = [];
+
+    G.edges.forEach(function (e) {
+      var a = G.byId[e.s], b = G.byId[e.t];
+      if (!a || !b) return;
+      var isHover = G.hoverEdge === e;
+      var dim = hover && !(e.s === hover.id || e.t === hover.id);
+      ctx.save();
+      ctx.globalAlpha = dim ? 0.16 : (isHover ? 1 : 0.62);
+      ctx.strokeStyle = e.corrected ? 'rgba(244,114,182,.85)' : 'rgba(148,178,224,.55)';
+      ctx.lineWidth = isHover ? 2.2 : (e.corrected ? 1.4 : 1.1);
+      if (e.corrected) ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      /* relation label at the midpoint */
+      var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      ctx.globalAlpha = dim ? 0.1 : (isHover ? 1 : 0.72);
+      ctx.font = '10px ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      var txt = e.label;
+      var tw = ctx.measureText(txt).width;
+      ctx.fillStyle = 'rgba(5,7,13,.82)';
+      ctx.fillRect(mx - tw / 2 - 4, my - 7, tw + 8, 14);
+      ctx.fillStyle = e.corrected ? 'rgba(249,168,212,.95)' : 'rgba(167,190,222,.9)';
+      ctx.fillText(txt, mx, my + 0.5);
+
+      if (e.corrected) {
+        var bt = '[已修正]';
+        ctx.font = '9px ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei", sans-serif';
+        var bw = ctx.measureText(bt).width + 8;
+        var bx = mx - bw / 2, by = my + 9;
+        ctx.globalAlpha = dim ? 0.18 : 1;
+        ctx.fillStyle = 'rgba(244,114,182,.16)';
+        ctx.strokeStyle = 'rgba(244,114,182,.65)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        var rr = 4;
+        ctx.moveTo(bx + rr, by);
+        ctx.lineTo(bx + bw - rr, by);
+        ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + rr);
+        ctx.lineTo(bx + bw, by + 13);
+        ctx.lineTo(bx, by + 13);
+        ctx.lineTo(bx, by + rr);
+        ctx.quadraticCurveTo(bx, by, bx + rr, by);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(249,168,212,.95)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(bt, mx, by + 7);
+        G.badges.push({ edge: e, x: bx, y: by, w: bw, h: 13 });
+      }
+      ctx.restore();
+    });
+
+    G.nodes.forEach(function (n) {
+      var color = TYPE_COLOR[n.type] || '#94a3b8';
+      var isHover = hover === n, isSel = sel === n, isNbr = nbrs[n.id];
+      var dim = hover && !isHover && !isNbr;
+      var r = nodeRadius(n);
+      ctx.save();
+      ctx.globalAlpha = dim ? 0.22 : 1;
+
+      if (isHover || isSel) {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r + 7, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(94,234,212,.10)';
+        ctx.fill();
+        ctx.strokeStyle = isSel ? 'rgba(94,234,212,.9)' : 'rgba(148,178,224,.5)';
+        ctx.lineWidth = isSel ? 1.8 : 1;
+        ctx.stroke();
+      }
+
+      var grad = ctx.createRadialGradient(n.x - r * 0.3, n.y - r * 0.4, 1, n.x, n.y, r);
+      grad.addColorStop(0, color);
+      grad.addColorStop(1, 'rgba(8,13,22,.9)');
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.strokeStyle = n.pinned ? 'rgba(251,191,36,.95)' : color;
+      ctx.lineWidth = n.pinned ? 1.8 : 1.1;
+      ctx.stroke();
+
+      if (n.pinned) {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(251,191,36,.95)';
+        ctx.fill();
+      }
+
+      ctx.font = '11px ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.globalAlpha = dim ? 0.18 : 0.92;
+      var label = n.label;
+      if (label.length > 12) label = label.slice(0, 11) + '…';
+      var lw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(5,7,13,.66)';
+      ctx.fillRect(n.x - lw / 2 - 3, n.y + r + 4, lw + 6, 13);
+      ctx.fillStyle = isHover || isSel ? '#ffffff' : 'rgba(231,238,251,.88)';
+      ctx.fillText(label, n.x, n.y + r + 5);
+      ctx.restore();
+    });
+
+    drawGraphHud(ctx, w, h);
+  }
+
+  function drawGraphHud(ctx, w, h) {
+    /* truncation notice + alpha/fps telemetry, kept out of the DOM */
+    ctx.save();
+    ctx.font = '10px ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    var line = 'α ' + G.alpha.toFixed(3) + ' · it ' + fmtN(G.simFrames);
+    ctx.fillStyle = 'rgba(132,150,180,.55)';
+    ctx.fillText(line, w - 10, 8);
+    if (!G.nodes.length) {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(132,150,180,.8)';
+      ctx.font = '12px ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei", sans-serif';
+      ctx.fillText('暂无语义记忆，先让它记住一件事吧', w / 2, h / 2);
+    }
+    ctx.restore();
+  }
+
+  function updateFps() {
+    var now = performance.now();
+    if (!G.fpsStamp) { G.fpsStamp = now; G.frameN = 0; return; }
+    G.frameN++;
+    var dt = now - G.fpsStamp;
+    if (dt >= 500) {
+      G.fps = Math.round((G.frameN * 1000) / dt);
+      G.fpsStamp = now;
+      G.frameN = 0;
+      var el = $('#graphPerf');
+      if (el) el.textContent = G.fps + ' fps · 预热 ' + G.warmMs + ' ms';
+    }
+  }
+
+  function graphFrame() {
+    G.raf = 0;
+    if (currentView !== 'graph' || document.visibilityState === 'hidden') return;
+    if (G.alpha > 0.0018 || G.drag) simulate(1);
+    drawGraph();
+    updateFps();
+    /* keep animating only while the layout is still moving; every interaction
+       (hover, drag, resize, tab switch) calls kickGraph() to restart the loop */
+    if (G.alpha > 0.0018 || G.drag) G.raf = requestAnimationFrame(graphFrame);
+  }
+
+  function kickGraph() {
+    if (!G.raf) G.raf = requestAnimationFrame(graphFrame);
+  }
+
+  function renderGraph() {
+    buildGraph();
+    if (currentView === 'graph') { drawGraph(); }
+  }
+
+  function renderFacts(node) {
+    var host = $('#nodeFacts');
+    if (!host) return;
+    if (!node) {
+      host.innerHTML = '<p class="muted small" style="margin:0">点击图中节点，查看它参与的语义事实。</p>';
+      return;
+    }
+    var color = TYPE_COLOR[node.type] || '#94a3b8';
+    var facts = [];
+    S.semantic.forEach(function (it) {
+      if (it.subject === node.id) facts.push({ dir: '出边', it: it });
+      if (it.object === node.id) facts.push({ dir: '入边', it: it });
+    });
+    var head = '<div class="node-title">' +
+      '<span class="sw" style="width:9px;height:9px;border-radius:50%;background:' + esc(color) + ';box-shadow:0 0 8px ' + esc(color) + '"></span>' +
+      '<span class="nm">' + esc(node.label) + '</span>' +
+      '<span class="badge">' + esc(TYPE_CN[node.type] || '节点') + '</span>' +
+      '<span class="badge">度数 ' + fmtN(node.degree) + '</span>' +
+      '</div>';
+    if (!facts.length) {
+      host.innerHTML = head + '<p class="muted small" style="margin:0">该节点暂无事实。</p>';
+      return;
+    }
+    host.innerHTML = head + facts.map(function (f) {
+      var it = f.it;
+      var corr = it.status === 'corrected'
+        ? '<span class="corr">已修正</span>'
+        : '<span style="color:#34d399">有效</span>';
+      return '<div class="fact">' +
+        '<div class="rel">' + esc(f.dir) + ' · ' + esc(it.relation) + '</div>' +
+        '<div class="so">' + esc(it.subject) + ' <span class="rel">→</span> ' + esc(it.object) + '</div>' +
+        '<div class="st">' + corr +
+          '<span>重要度 ' + starsHtml(clamp(num(it.importance, 3), 1, 5)) + '</span>' +
+          '<span>强度 ' + fmt1(computeStrength(it, 'semantic')) + '</span>' +
+          '<span>' + fmtDT(it.ts) + '</span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function edgeTipHtml(e) {
+    if (!e) return '';
+    var it = e.item || {};
+    if (!e.corrected) {
+      return '<div class="t-h">' + esc(it.subject) + ' · ' + esc(it.relation) + '</div>' +
+        '<div class="t-v">' + esc(it.object) + '</div>' +
+        '<div class="t-r">重要度 ' + esc(it.importance || '—') + ' · 强度 ' + fmt1(computeStrength(it, 'semantic')) + '</div>';
+    }
+    var c = correctionOf(it);
+    var nowTxt = c.succ ? (c.succ.subject + ' · ' + c.succ.relation + ' · ' + c.succ.object) : null;
+    var prevTxt = c.prev ? (c.prev.subject + ' · ' + c.prev.relation + ' · ' + c.prev.object) : null;
+    return '<div class="t-h">[已修正] ' + esc(it.subject) + ' · ' + esc(it.relation) + '</div>' +
+      '<div class="t-v">本版：' + esc(it.subject) + ' · ' + esc(it.relation) + ' · ' + esc(it.object) + '</div>' +
+      (prevTxt ? '<div class="t-r">上一版本：' + esc(prevTxt) + '</div>' : '') +
+      (nowTxt ? '<div class="t-r">现版本：' + esc(nowTxt) + '</div>' : '<div class="t-r">现版本尚未记录</div>') +
+      '<div class="t-r">' + fmtDT(it.ts) + ' · 强度 ' + fmt1(computeStrength(it, 'semantic')) + '</div>';
+  }
+
+  function nodeTipHtml(n) {
+    return '<div class="t-h">' + esc(n.label) + '</div>' +
+      '<div class="t-r">' + esc(TYPE_CN[n.type] || '节点') + ' · 度数 ' + fmtN(n.degree) +
+      (n.pinned ? ' · 已固定' : '') + '</div>';
+  }
+
+  function wireGraph() {
+    var cv = $('#graphCanvas'), boxEl = $('#graphBox');
+    if (!cv) return;
+
+    function localPos(ev) {
+      var r = cv.getBoundingClientRect();
+      return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+    }
+
+    cv.addEventListener('pointerdown', function (ev) {
+      var p = localPos(ev);
+      var n = hitNode(p.x, p.y);
+      if (!n) return;
+      ev.preventDefault();
+      G.drag = { id: n.id, moved: false };
+      n.pinned = true;
+      n.px = n.x; n.py = n.y;
+      G.alpha = Math.max(G.alpha, 0.25);
+      if (boxEl) boxEl.classList.add('dragging');
+      if (cv.setPointerCapture) { try { cv.setPointerCapture(ev.pointerId); } catch (e) {} }
+      kickGraph();
+    });
+
+    cv.addEventListener('pointermove', function (ev) {
+      var p = localPos(ev);
+      if (G.drag) {
+        var n = G.byId[G.drag.id];
+        if (n) {
+          n.x = clamp(p.x, 24, G.w - 24);
+          n.y = clamp(p.y, 24, G.h - 24);
+          n.px = n.x; n.py = n.y;
+          G.drag.moved = true;
+          G.alpha = Math.max(G.alpha, 0.2);
+        }
+        kickGraph();
+        return;
+      }
+      var hn = hitNode(p.x, p.y);
+      var he = hn ? null : hitEdge(p.x, p.y);
+      var changed = (hn ? hn.id : null) !== G.hover || (he ? he.id : null) !== (G.hoverEdge ? G.hoverEdge.id : null);
+      G.hover = hn ? hn.id : null;
+      G.hoverEdge = he || null;
+      if (hn) showTip(ev.clientX, ev.clientY, nodeTipHtml(hn));
+      else if (he) showTip(ev.clientX, ev.clientY, edgeTipHtml(he));
+      else hideTip();
+      if (changed) { G.alpha = Math.max(G.alpha, 0.06); kickGraph(); }
+    });
+
+    cv.addEventListener('pointerup', function (ev) {
+      if (G.drag) {
+        var drag = G.drag;
+        G.drag = null;
+        if (boxEl) boxEl.classList.remove('dragging');
+        var n = G.byId[drag.id];
+        if (n) { n.pinned = true; n.px = n.x; n.py = n.y; }
+        if (!drag.moved && n) selectNode(n);
+        kickGraph();
+      }
+      if (cv.releasePointerCapture && ev.pointerId != null) { try { cv.releasePointerCapture(ev.pointerId); } catch (e) {} }
+    });
+
+    cv.addEventListener('pointerleave', function () {
+      G.hover = null; G.hoverEdge = null; hideTip();
+      G.alpha = Math.max(G.alpha, 0.04);
+      kickGraph();
+    });
+
+    cv.addEventListener('dblclick', function (ev) {
+      var p = localPos(ev);
+      var n = hitNode(p.x, p.y);
+      if (!n) return;
+      n.pinned = false;
+      n.px = null; n.py = null;
+      G.alpha = Math.max(G.alpha, 0.7);
+      kickGraph();
+    });
+
+    cv.addEventListener('click', function (ev) {
+      var p = localPos(ev);
+      if (hitNode(p.x, p.y)) return;
+      if (!hitEdge(p.x, p.y)) selectNode(null);
+    });
+
+    var unpin = $('#btnUnpinAll');
+    if (unpin) unpin.addEventListener('click', function () {
+      G.nodes.forEach(function (n) { n.pinned = false; n.px = null; n.py = null; });
+      G.alpha = 1;
+      kickGraph();
+    });
+
+    observeResize(cv.parentNode || cv, function () {
+      G.alpha = Math.max(G.alpha, 0.2);
+      if (currentView === 'graph') kickGraph();
+    });
+  }
+
+  function selectNode(n) {
+    G.selected = n ? n.id : null;
+    renderFacts(n);
+    G.alpha = Math.max(G.alpha, 0.05);
+    kickGraph();
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     8. Shared tooltip
+     ══════════════════════════════════════════════════════════ */
+  var TIP = { el: null, w: 0 };
+
+  function showTip(clientX, clientY, html) {
+    var el = TIP.el || (TIP.el = $('#tip'));
+    if (!el) return;
+    el.innerHTML = html;
+    el.hidden = false;
+    var w = el.offsetWidth || 200, h = el.offsetHeight || 60;
+    var x = clientX + 16, y = clientY + 16;
+    if (x + w > window.innerWidth - 8) x = Math.max(8, clientX - w - 14);
+    if (y + h > window.innerHeight - 8) y = Math.max(8, clientY - h - 14);
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.classList.add('on');
+  }
+
+  function hideTip() {
+    var el = TIP.el || $('#tip');
+    if (!el) return;
+    el.classList.remove('on');
+    el.hidden = true;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     9. Heatmap (last 30 days × 5 layers) + decay curves
+     ══════════════════════════════════════════════════════════ */
+  var HEAT = { days: [], counts: [], means: [], max: 1, geo: null, hover: null };
+
+  function lastDays(n) {
+    var out = [];
+    var t = startOfToday();
+    for (var i = n - 1; i >= 0; i--) out.push(new Date(t.getTime() - i * 86400000));
+    return out;
+  }
+
+  function hexToRgb(hex) {
+    var h = String(hex || '#94a3b8').replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var v = parseInt(h, 16);
+    return { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 };
+  }
+  function rgba(hex, a) {
+    var c = hexToRgb(hex);
+    return 'rgba(' + c.r + ',' + c.g + ',' + c.b + ',' + a + ')';
+  }
+
+  function buildHeatData() {
+    var days = lastDays(30);
+    var index = Object.create(null);
+    days.forEach(function (d, i) { index[dayKey(d)] = i; });
+    var counts = [], means = [];
+    LAYERS.forEach(function () {
+      var rowCount = new Array(30).fill(0);
+      var rowSum = new Array(30).fill(0);
+      counts.push(rowCount); means.push(rowSum);
+    });
+    var max = 1;
+
+    S.flat.forEach(function (r) {
+      if (!r.ts) return;
+      var i = index[dayKey(r.ts)];
+      if (i == null) return;
+      var li = LAYERS.indexOf(r.layer);
+      if (li < 0) return;
+      counts[li][i]++;
+      means[li][i] += r.strength;
+      if (counts[li][i] > max) max = counts[li][i];
+    });
+    for (var l = 0; l < LAYERS.length; l++) {
+      for (var d = 0; d < 30; d++) means[l][d] = counts[l][d] ? means[l][d] / counts[l][d] : 0;
+    }
+    HEAT.days = days;
+    HEAT.counts = counts;
+    HEAT.means = means;
+    HEAT.max = max;
+  }
+
+  function drawHeatmap() {
+    var cv = $('#heatCanvas');
+    var box = fitCanvas(cv);
+    if (!box) return;
+    var ctx = box.ctx, w = box.w, h = box.h;
+    var padL = 68, padR = 8, padT = 20, padB = 20;
+    var gridW = Math.max(40, w - padL - padR);
+    var gridH = Math.max(40, h - padT - padB);
+    var cols = 30, rows = LAYERS.length;
+    var cellW = gridW / cols, cellH = gridH / rows;
+    var gap = Math.min(3, Math.max(1.5, cellW * 0.12));
+    var font = '10px ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei", sans-serif';
+    ctx.font = font;
+
+    HEAT.geo = { padL: padL, padT: padT, cellW: cellW, cellH: cellH, gap: gap, w: w, h: h };
+
+    var showNumbers = cellW >= 26;
+
+    for (var r = 0; r < rows; r++) {
+      var layer = LAYERS[r];
+      var color = (S.regions[layer] && S.regions[layer].color) || LAYER_COLOR[layer];
+      var y = padT + r * cellH;
+
+      /* row label + colour dot */
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(231,238,251,.82)';
+      ctx.fillText(LAYER_CN[layer], padL - 12, y + cellH / 2);
+      ctx.beginPath();
+      ctx.arc(padL - 6, y + cellH / 2, 2.6, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+
+      for (var c = 0; c < cols; c++) {
+        var v = HEAT.counts[r][c];
+        var x = padL + c * cellW;
+        var alpha = v ? 0.16 + 0.8 * Math.pow(v / HEAT.max, 0.7) : 0.035;
+        ctx.fillStyle = v ? rgba(color, alpha) : 'rgba(148,178,224,.05)';
+        var rr = Math.min(3, (cellW - gap) / 3);
+        var x0 = x + gap / 2, y0 = y + gap / 2;
+        var cw = Math.max(1, cellW - gap), ch = Math.max(1, cellH - gap);
+        ctx.beginPath();
+        ctx.moveTo(x0 + rr, y0);
+        ctx.lineTo(x0 + cw - rr, y0);
+        ctx.quadraticCurveTo(x0 + cw, y0, x0 + cw, y0 + rr);
+        ctx.lineTo(x0 + cw, y0 + ch - rr);
+        ctx.quadraticCurveTo(x0 + cw, y0 + ch, x0 + cw - rr, y0 + ch);
+        ctx.lineTo(x0 + rr, y0 + ch);
+        ctx.quadraticCurveTo(x0, y0 + ch, x0, y0 + ch - rr);
+        ctx.lineTo(x0, y0 + rr);
+        ctx.quadraticCurveTo(x0, y0, x0 + rr, y0);
+        ctx.fill();
+
+        if (v) {
+          ctx.strokeStyle = rgba(color, 0.5);
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        if (showNumbers && v) {
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = 'rgba(5,7,13,.85)';
+          ctx.fillText(String(v), x + cellW / 2, y + cellH / 2 + 0.5);
+        }
+        if (HEAT.hover && HEAT.hover.r === r && HEAT.hover.c === c) {
+          ctx.strokeStyle = 'rgba(94,234,212,.95)';
+          ctx.lineWidth = 1.6;
+          ctx.strokeRect(x0 - 1, y0 - 1, cw + 2, ch + 2);
+        }
+      }
+    }
+
+    /* x axis: day labels, spaced so they never collide on a narrow canvas */
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(132,150,180,.75)';
+    var step = 5;
+    if (cellW * step < 46) step = Math.ceil(46 / cellW);
+    for (var c2 = 0; c2 < cols; c2 += step) {
+      var lx2 = padL + c2 * cellW + cellW / 2;
+      if (padL + gridW - lx2 < 48) break;
+      ctx.fillText(fmtD(HEAT.days[c2]), lx2, padT + gridH + 5);
+    }
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtD(HEAT.days[cols - 1]), padL + gridW, padT + gridH + 5);
+
+    var scale = $('#heatScale');
+    if (scale) scale.textContent = '单格最多 ' + fmtN(HEAT.max) + ' 条 · 深色 = 密集';
+  }
+
+  function warmColorFor(imp) {
+    return ['#67e8f9', '#34d399', '#fbbf24', '#fb7185', '#a78bfa'][clamp(imp, 1, 5) - 1];
+  }
+
+  function drawDecayCurves() {
+    var cv = $('#decayCanvas');
+    var box = fitCanvas(cv);
+    if (!box) return;
+    var ctx = box.ctx, w = box.w, h = box.h;
+    var padL = 34, padR = 20, padT = 16, padB = 26;
+    var plotW = Math.max(20, w - padL - padR);
+    var plotH = Math.max(20, h - padT - padB);
+    var lam = num(S.lambda, 0.05) || 0.05;
+    var DAYS = 60;
+    var font = '10px ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei", sans-serif';
+    var tiny = '8.5px ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei", sans-serif';
+    ctx.font = font;
+
+    /* one x mapping for grid, curves and crossing dots — nothing else may
+       compute an x position, so a dot always sits exactly on its curve */
+    function X(d) { return padL + (clamp(d, 0, DAYS) / DAYS) * plotW; }
+    function Y(s) { return padT + plotH - (clamp(s, 0, 5) / 5) * plotH; }
+
+    /* grid */
+    ctx.strokeStyle = 'rgba(148,178,224,.10)';
+    ctx.lineWidth = 1;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(132,150,180,.72)';
+    for (var s = 0; s <= 5; s++) {
+      ctx.beginPath();
+      ctx.moveTo(padL, Y(s) + 0.5);
+      ctx.lineTo(padL + plotW, Y(s) + 0.5);
+      ctx.stroke();
+      ctx.fillText(String(s), padL - 7, Y(s));
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (var d = 0; d <= DAYS; d += 15) {
+      ctx.beginPath();
+      ctx.moveTo(X(d) + 0.5, padT);
+      ctx.lineTo(X(d) + 0.5, padT + plotH);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(132,150,180,.72)';
+      ctx.fillText(d === 0 ? '0' : d + '天', X(d), padT + plotH + 6);
+    }
+
+    /* forget threshold line — dashed, under the curves; its label is painted
+       last (see below) so it can never be cut through by a curve tail */
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(251,113,133,.72)';
+    ctx.beginPath();
+    ctx.moveTo(padL, Y(FORGET_THRESHOLD) + 0.5);
+    ctx.lineTo(padL + plotW, Y(FORGET_THRESHOLD) + 0.5);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    /* curves: importance 1..5. Importance ≥ PINNED_IMPORTANCE is never
+       forgotten by the plugin, so those two are drawn dashed and get no
+       crossing dot — the panel must not promise a forgetting day. */
+    var crossings = [], pinned = [];
+    for (var imp = 1; imp <= 5; imp++) {
+      var color = warmColorFor(imp);
+      var isPinned = imp >= PINNED_IMPORTANCE;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = isPinned ? 1.7 : 1.4;
+      ctx.setLineDash(isPinned ? [5, 4] : []);
+      ctx.globalAlpha = isPinned ? 0.85 : 1;
+      ctx.beginPath();
+      for (var day = 0; day <= DAYS; day++) {
+        var str = imp * Math.exp(-lam * day);
+        if (day === 0) ctx.moveTo(X(day), Y(str));
+        else ctx.lineTo(X(day), Y(str));
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+
+      /* curve origin label: identifies the line without crowding the right
+         edge where all five curves converge */
+      ctx.font = tiny;
+      ctx.fillStyle = 'rgba(9,14,24,.9)';
+      var ow = ctx.measureText('I' + imp).width;
+      ctx.fillRect(padL + 3, Y(imp) - 11, ow + 3, 10);
+      ctx.fillStyle = color;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText('I' + imp, padL + 4.5, Y(imp) - 3);
+
+      var cross = Math.log(imp / FORGET_THRESHOLD) / lam;
+      if (isPinned) {
+        pinned.push({ imp: imp, color: color });
+      } else if (isFinite(cross) && cross >= 0 && cross <= DAYS) {
+        crossings.push({ imp: imp, day: cross, color: color });
+        var cx = X(cross), cy = Y(FORGET_THRESHOLD);
+        /* dotted guide down to the axis, dot exactly on the crossing */
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.32;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(cx + 0.5, cy);
+        ctx.lineTo(cx + 0.5, padT + plotH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(5,7,13,.9)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        /* day value above the dot — only when the plot is wide enough for the
+           three labels to stay apart (the list below always carries the days) */
+        if (plotW >= 480) {
+          ctx.font = tiny;
+          ctx.fillStyle = 'rgba(9,14,24,.9)';
+          var dw = ctx.measureText(fmt1(cross) + '天').width;
+          ctx.fillRect(cx - dw / 2 - 2, cy - 22, dw + 4, 11);
+          ctx.fillStyle = color;
+          ctx.textAlign = 'center';
+          ctx.fillText(fmt1(cross) + '天', cx, cy - 13);
+        }
+      }
+      ctx.font = font;
+    }
+
+    /* threshold label, painted after the curves on an opaque chip. It sits
+       just BELOW the line near the y-axis: that wedge is empty by
+       construction, because no curve has dropped under 0.5 before the first
+       crossing at ~13.9 天. On a narrow canvas there is no room for it, and
+       the list below already says 跌破阈值 0.5. */
+    if (plotW >= 380) {
+      var tl = '遗忘阈值 0.5';
+      ctx.font = tiny;
+      var tlw = ctx.measureText(tl).width;
+      var tlx = padL + 3;
+      var tly = Y(FORGET_THRESHOLD);
+      ctx.fillStyle = 'rgba(9,14,24,.96)';
+      ctx.fillRect(tlx - 3, tly + 3, tlw + 6, 13);
+      ctx.fillStyle = 'rgba(251,143,160,.95)';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(tl, tlx, tly + 5);
+      ctx.font = font;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+    }
+    var meta = $('#curveMeta');
+    if (meta) meta.textContent = 'strength = I × exp(−' + lam.toFixed(3) + ' · d) · 60 天';
+
+    var list = $('#crossings');
+    if (list) {
+      var out = ['<li class="cap">跌破阈值 0.5 · 重要度 1–3</li>'];
+      if (crossings.length) {
+        out = out.concat(crossings.map(function (c) {
+          return '<li><span class="sw" style="background:' + esc(c.color) + '"></span>' +
+            '重要度 ' + c.imp + ' 跌破阈值<b>第 ' + fmt1(c.day) + ' 天</b></li>';
+        }));
+      } else {
+        out.push('<li class="muted">60 天内没有曲线跌破 0.5</li>');
+      }
+      out.push('<li class="cap">免疫 · 重要度 ≥ ' + PINNED_IMPORTANCE + '</li>');
+      out = out.concat(pinned.map(function (p) {
+        return '<li class="imm" title="免疫 · 重要度≥4 永不遗忘">' +
+          '<span class="sw pin" style="color:' + esc(p.color) + '"></span>' +
+          '重要度 ' + p.imp + ' · 免疫<b>永不遗忘</b></li>';
+      }));
+      list.innerHTML = out.join('');
+    }
+  }
+
+  function renderHeatmap() {
+    buildHeatData();
+    var meta = $('#heatMeta');
+    if (meta) {
+      var from = HEAT.days[0], to = HEAT.days[HEAT.days.length - 1];
+      meta.textContent = '近 30 天（' + fmtD(from) + ' → ' + fmtD(to) + '）· 按层统计每日新建记忆';
+    }
+    if (currentView === 'heatmap') drawHeatmap();
+  }
+
+  function renderDecayCurves() {
+    if (currentView === 'heatmap') drawDecayCurves();
+  }
+
+  function wireHeatmap() {
+    var cv = $('#heatCanvas');
+    if (!cv) return;
+    cv.addEventListener('pointermove', function (ev) {
+      var geo = HEAT.geo;
+      if (!geo) return;
+      var r = cv.getBoundingClientRect();
+      var x = ev.clientX - r.left, y = ev.clientY - r.top;
+      var c = Math.floor((x - geo.padL) / geo.cellW);
+      var row = Math.floor((y - geo.padT) / geo.cellH);
+      if (c < 0 || c > 29 || row < 0 || row > LAYERS.length - 1) {
+        if (HEAT.hover) { HEAT.hover = null; drawHeatmap(); }
+        hideTip();
+        return;
+      }
+      var changed = !HEAT.hover || HEAT.hover.r !== row || HEAT.hover.c !== c;
+      HEAT.hover = { r: row, c: c };
+      var layer = LAYERS[row];
+      var count = HEAT.counts[row][c];
+      var mean = HEAT.means[row][c];
+      var color = (S.regions[layer] && S.regions[layer].color) || LAYER_COLOR[layer];
+      showTip(ev.clientX, ev.clientY,
+        '<div class="t-h">' + esc(fmtD(HEAT.days[c])) + ' · ' + esc(LAYER_CN[layer]) + '</div>' +
+        '<div class="t-v"><span style="color:' + esc(color) + '">■</span> 新增 ' + fmtN(count) + ' 条</div>' +
+        '<div class="t-r">平均强度 ' + (count ? fmt1(mean) : '—') + '</div>');
+      if (changed) drawHeatmap();
+    });
+    cv.addEventListener('pointerleave', function () {
+      HEAT.hover = null;
+      hideTip();
+      drawHeatmap();
+    });
+    observeResize(cv.parentNode || cv, drawHeatmap);
+    var dc = $('#decayCanvas');
+    if (dc) observeResize(dc.parentNode || dc, drawDecayCurves);
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     10. Add-memory modal (adapts to layer)
+     ══════════════════════════════════════════════════════════ */
+  var lastFocus = null;
+
+  function modalLayer() {
+    var b = $('#layerSeg [aria-pressed="true"]');
+    return b ? b.getAttribute('data-layer') : 'episodic';
+  }
+
+  function setModalLayer(layer) {
+    $$('#layerSeg button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-layer') === layer));
+    });
+    $$('#addForm [data-fields]').forEach(function (f) {
+      f.classList.toggle('on', f.getAttribute('data-fields') === layer);
+    });
+    var err = $('#formErr');
+    if (err) err.textContent = '';
+  }
+
+  function openModal(layer) {
+    var m = $('#modal');
+    if (!m) return;
+    lastFocus = document.activeElement;
+    var form = $('#addForm');
+    form.reset();
+    var err = $('#formErr');
+    if (err) err.textContent = '';
+    var imp = form.elements.namedItem('importance');
+    if (imp) imp.value = '3';
+    setModalLayer(layer || 'episodic');
+    m.hidden = false;
+    var first = $('#addForm [data-fields].on input, #addForm [data-fields].on textarea');
+    if (first) setTimeout(function () { try { first.focus(); } catch (e) {} }, 30);
+  }
+
+  function closeModal() {
+    var m = $('#modal');
+    if (!m || m.hidden) return;
+    m.hidden = true;
+    hideTip();
+    if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) {} }
+    lastFocus = null;
+  }
+
+  function splitList(v) {
+    return String(v || '').split(/[,，、;；]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  function localAdd(layer, payload) {
+    var id = 'demo-local-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    var ts = new Date().toISOString();
+    var imp = clamp(num(payload.importance, 3), 1, 5);
+    var rec;
+    if (layer === 'episodic') {
+      rec = { id: id, ts: ts, event: payload.event, participants: payload.participants || [], place: payload.place || '', emotion: payload.emotion || '', importance: imp, strength: imp, detail: payload.detail || '', source: 'demo' };
+    } else if (layer === 'semantic') {
+      rec = { id: id, ts: ts, subject: payload.subject, relation: payload.relation, object: payload.object, status: 'active', importance: imp, strength: imp, supersedes: null, source: 'demo' };
+    } else {
+      rec = { id: id, ts: ts, rule: payload.rule, importance: imp, strength: imp, hits: 0, source: 'demo' };
+    }
+    S[layer].unshift(rec);
+    if (S.demoState) S.demoState[layer] = S[layer];
+    recount(S);
+    rebuildIndex();
+    renderAll();
+    flashKpi('total');
+    flashKpi('addedToday');
+    return rec;
+  }
+
+  function submitMemory() {
+    var form = $('#addForm');
+    var errEl = $('#formErr');
+    var btn = $('#btnSubmit');
+    var layer = modalLayer();
+    function fail(msg) { if (errEl) errEl.textContent = msg; return false; }
+
+    var imp = clamp(num(form.elements.namedItem('importance').value, 3), 1, 5);
+    var payload = { layer: layer, importance: imp };
+
+    if (layer === 'episodic') {
+      var event = (form.elements.namedItem('event').value || '').trim();
+      if (!event) return fail('请填写事件');
+      payload.event = event;
+      payload.participants = splitList(form.elements.namedItem('participants').value);
+      payload.place = (form.elements.namedItem('place').value || '').trim();
+      payload.emotion = (form.elements.namedItem('emotion').value || '').trim();
+      payload.detail = (form.elements.namedItem('detail').value || '').trim();
+    } else if (layer === 'semantic') {
+      var subject = (form.elements.namedItem('subject').value || '').trim();
+      var relation = (form.elements.namedItem('relation').value || '').trim();
+      var object = (form.elements.namedItem('object').value || '').trim();
+      if (!subject || !relation || !object) return fail('主体、关系、客体都需要填写');
+      payload.subject = subject; payload.relation = relation; payload.object = object;
+    } else {
+      var rule = (form.elements.namedItem('rule').value || '').trim();
+      if (!rule) return fail('请填写规则');
+      payload.rule = rule;
+    }
+
+    if (errEl) errEl.textContent = '';
+
+    if (S.mode === 'demo' || S.demoOverride) {
+      localAdd(layer, payload);
+      closeModal();
+      return true;
+    }
+
+    if (btn) { btn.disabled = true; btn.textContent = '写入中…'; }
+    api('api/remember', { method: 'POST', body: payload }).then(function () {
+      closeModal();
+      return refresh().then(function () {
+        flashKpi('total');
+        flashKpi('addedToday');
+      });
+    }).catch(function (e) {
+      if (btn) { btn.disabled = false; btn.textContent = '写入记忆'; }
+      fail('写入失败：' + ((e && e.message) || '网络错误'));
+    }).then(function () {
+      if (btn) { btn.disabled = false; btn.textContent = '写入记忆'; }
+    });
+    return true;
+  }
+
+  function wireModal() {
+    var m = $('#modal');
+    if (!m) return;
+    var seg = $('#layerSeg');
+    if (seg) seg.addEventListener('click', function (ev) {
+      var b = ev.target.closest ? ev.target.closest('button[data-layer]') : null;
+      if (!b) return;
+      setModalLayer(b.getAttribute('data-layer'));
+      var first = $('#addForm [data-fields].on input, #addForm [data-fields].on textarea');
+      if (first) { try { first.focus(); } catch (e) {} }
+    });
+
+    var backdrop = $('#modalBackdrop');
+    if (backdrop) backdrop.addEventListener('click', closeModal);
+    var cancel = $('#btnCancel');
+    if (cancel) cancel.addEventListener('click', closeModal);
+
+    var form = $('#addForm');
+    if (form) form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      submitMemory();
+    });
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     11. Export
+     ══════════════════════════════════════════════════════════ */
+  function download(filename, text, mime) {
+    try {
+      var blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () {
+        try { document.body.removeChild(a); } catch (e) {}
+        try { URL.revokeObjectURL(url); } catch (e) {}
+      }, 1200);
+    } catch (e) {
+      showBanner('导出失败：浏览器不支持文件下载');
+    }
+  }
+
+  function exportPayload() {
+    return {
+      version: '1.0.0',
+      exportedAt: new Date().toISOString(),
+      source: S.mode === 'demo' ? 'demo' : 'api',
+      lambda: S.lambda,
+      stats: S.stats,
+      sensory: S.sensory,
+      working: S.working,
+      episodic: S.episodic,
+      semantic: S.semantic,
+      procedural: S.procedural
+    };
+  }
+
+  function generateMarkdown() {
+    var out = [];
+    out.push('# deepseek-brain 记忆快照');
+    out.push('');
+    out.push('- 生成时间：' + fmtDT(new Date()));
+    out.push('- 数据来源：' + (S.mode === 'demo' ? '内置演示数据' : 'host API'));
+    out.push('- 衰减常数 λ：' + num(S.lambda, 0.05).toFixed(3));
+    out.push('- 统计：总 ' + fmtN(S.stats.total) + ' · 今日新增 ' + fmtN(S.stats.addedToday) +
+      ' · 遗忘 ' + fmtN(S.stats.forgotten) + ' · 巩固 ' + fmtN(S.stats.consolidated));
+    out.push('');
+
+    out.push('## 情景记忆（' + fmtN(S.episodic.length) + '）');
+    out.push('');
+    if (!S.episodic.length) out.push('_暂无_');
+    S.episodic.forEach(function (it) {
+      out.push('- [' + fmtDT(it.ts) + '] **' + (it.event || '') + '**（重要度 ' + num(it.importance, 3) + '，强度 ' + fmt1(computeStrength(it, 'episodic')) + '）');
+      var meta = [];
+      if ((it.participants || []).length) meta.push('参与者：' + it.participants.join('、'));
+      if (it.place) meta.push('地点：' + it.place);
+      if (it.emotion) meta.push('情绪：' + it.emotion);
+      if (meta.length) out.push('  - ' + meta.join(' · '));
+      if (it.detail) out.push('  - ' + it.detail);
+    });
+    out.push('');
+
+    out.push('## 语义记忆（' + fmtN(S.semantic.length) + '）');
+    out.push('');
+    if (!S.semantic.length) out.push('_暂无_');
+    S.semantic.forEach(function (it) {
+      out.push('- ' + it.subject + ' —' + it.relation + '→ ' + it.object +
+        '（' + (it.status === 'corrected' ? '已修正' : 'active') + '，重要度 ' + num(it.importance, 3) +
+        '，强度 ' + fmt1(computeStrength(it, 'semantic')) + '）');
+    });
+    out.push('');
+
+    out.push('## 程序记忆（' + fmtN(S.procedural.length) + '）');
+    out.push('');
+    if (!S.procedural.length) out.push('_暂无_');
+    S.procedural.forEach(function (it) {
+      out.push('- ' + it.rule + '（命中 ' + fmtN(it.hits) + ' 次，强度 ' + fmt1(computeStrength(it, 'procedural')) + '）');
+    });
+    out.push('');
+
+    out.push('## 感觉记忆（' + fmtN(S.sensory.length) + '）');
+    out.push('');
+    if (!S.sensory.length) out.push('_暂无_');
+    S.sensory.forEach(function (it) {
+      out.push('- [' + fmtDT(it.ts) + '] ' + it.text + (it.attended ? '（已注意）' : '（未注意）'));
+    });
+    out.push('');
+    return out.join('\n');
+  }
+
+  function exportJson() {
+    download('deepseek-brain-export.json', JSON.stringify(exportPayload(), null, 2), 'application/json;charset=utf-8');
+    flashKpi('total');
+    return Promise.resolve();
+  }
+
+  function exportMarkdown() {
+    if (S.mode === 'live' && !S.demoOverride) {
+      return fetch('api/snapshot.md', { cache: 'no-store' }).then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.text();
+      }).then(function (txt) {
+        download('deepseek-brain-snapshot.md', txt, 'text/markdown;charset=utf-8');
+      }).catch(function () {
+        download('deepseek-brain-snapshot.md', generateMarkdown(), 'text/markdown;charset=utf-8');
+        showBanner('快照接口不可用，已用当前状态在本地生成 Markdown。');
+      });
+    }
+    download('deepseek-brain-snapshot.md', generateMarkdown(), 'text/markdown;charset=utf-8');
+    return Promise.resolve();
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     12. Routing, keyboard, wiring, init
+     ══════════════════════════════════════════════════════════ */
+  var currentView = 'overview';
+
+  function parseHash() {
+    var h = (location.hash || '').replace(/^#/, '').split('?')[0];
+    return VIEWS.indexOf(h) >= 0 ? h : 'overview';
+  }
+
+  function activateView(name) {
+    currentView = name;
+    $$('.view').forEach(function (v) {
+      v.classList.toggle('active', v.getAttribute('data-view') === name);
+    });
+    $$('.tab').forEach(function (t) {
+      t.setAttribute('aria-selected', String(t.getAttribute('data-view') === name));
+    });
+    onViewShown(name);
+  }
+
+  function go(name) {
+    if (VIEWS.indexOf(name) < 0) name = 'overview';
+    if (parseHash() === name && location.hash) { activateView(name); return; }
+    location.hash = '#' + name;
+  }
+
+  function onViewShown(name) {
+    hideTip();
+    if (name === 'overview') {
+      requestAnimationFrame(function () { drawHistogram(); });
+    } else if (name === 'timeline') {
+      requestAnimationFrame(function () { renderTimeline(); });
+    } else if (name === 'graph') {
+      requestAnimationFrame(function () {
+        buildGraph();
+        G.alpha = Math.max(G.alpha, 0.25);
+        drawGraph();
+        kickGraph();
+      });
+    } else if (name === 'heatmap') {
+      requestAnimationFrame(function () { drawHeatmap(); drawDecayCurves(); });
+    }
+  }
+
+  function wireRouting() {
+    var tabs = $('#tabs');
+    if (tabs) tabs.addEventListener('click', function (ev) {
+      var b = ev.target.closest ? ev.target.closest('.tab') : null;
+      if (!b) return;
+      go(b.getAttribute('data-view'));
+    });
+    window.addEventListener('hashchange', function () {
+      activateView(parseHash());
+    });
+  }
+
+  function isTypingTarget(t) {
+    if (!t) return false;
+    var tag = (t.tagName || '').toUpperCase();
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!t.isContentEditable;
+  }
+
+  function wireKeyboard() {
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape') {
+        if (!$('#modal').hidden) { closeModal(); ev.preventDefault(); }
+        else { hideTip(); }
+        return;
+      }
+      if (isTypingTarget(ev.target) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      if (ev.key >= '1' && ev.key <= '4') {
+        var v = VIEWS[Number(ev.key) - 1];
+        if (v) { go(v); ev.preventDefault(); }
+        return;
+      }
+      if (ev.key === '/') {
+        ev.preventDefault();
+        if (currentView !== 'timeline') go('timeline');
+        setTimeout(function () {
+          var s = $('#tlSearch');
+          if (s) { try { s.focus(); s.select(); } catch (e) {} }
+        }, 20);
+      }
+    });
+  }
+
+  function wireToolbar() {
+    var add = $('#btnAdd');
+    if (add) add.addEventListener('click', function () { openModal('episodic'); });
+
+    var demo = $('#demoToggle');
+    if (demo) demo.addEventListener('change', function () {
+      S.demoOverride = !!demo.checked;
+      hideTip();
+      if (S.demoOverride) {
+        enterDemo('', false);
+        showBanner('演示模式已开启：所有增删只作用于内存，不会写入 host。');
+      } else {
+        S.demoState = null;
+        hideBanner();
+        refresh();
+      }
+    });
+
+    var ej = $('#btnExportJson');
+    if (ej) ej.addEventListener('click', function () { exportJson(); });
+
+    var em = $('#btnExportMd');
+    if (em) em.addEventListener('click', function () {
+      em.disabled = true;
+      exportMarkdown().then(function () { em.disabled = false; }, function () { em.disabled = false; });
+    });
+
+    var bc = $('#bannerClose');
+    if (bc) bc.addEventListener('click', hideBanner);
+
+    var sleep = $('#btnSleep');
+    if (sleep) sleep.addEventListener('click', function () { runSleep(); });
+
+    var more = $('#btnRecentMore');
+    if (more) more.addEventListener('click', function () { go('timeline'); });
+  }
+
+  function renderSkeleton() {
+    var kpis = $('#kpis');
+    if (kpis) {
+      var out = [];
+      for (var i = 0; i < 4; i++) {
+        out.push('<div class="card kpi">' +
+          '<div class="sk" style="height:9px;width:54%"></div>' +
+          '<div class="sk" style="height:24px;width:68%;margin-top:10px"></div>' +
+          '<div class="sk" style="height:8px;width:42%;margin-top:9px"></div></div>');
+      }
+      out.push('<div class="card kpi chips"><div class="sk" style="height:9px;width:40%"></div>' +
+        '<div class="chips-row">' +
+        '<span class="sk" style="height:16px;width:58px;border-radius:999px"></span>' +
+        '<span class="sk" style="height:16px;width:72px;border-radius:999px"></span>' +
+        '<span class="sk" style="height:16px;width:48px;border-radius:999px"></span>' +
+        '</div></div>');
+      kpis.innerHTML = out.join('');
+    }
+    var stack = $('#layerStack');
+    if (stack) stack.innerHTML = '<div class="sk" style="height:100%;width:100%;border-radius:7px"></div>';
+    var legend = $('#layerLegend');
+    if (legend) {
+      var rows = [];
+      for (var j = 0; j < 5; j++) rows.push('<li><span class="sk" style="width:9px;height:9px;border-radius:3px"></span><span class="sk" style="flex:0 0 62px;height:9px"></span></li>');
+      legend.innerHTML = rows.join('');
+    }
+    var inner = $('#tlInner');
+    if (inner) {
+      var rows2 = [];
+      for (var k = 0; k < 7; k++) {
+        rows2.push('<div class="sk" style="height:60px;margin:10px 14px"></div>');
+      }
+      inner.innerHTML = rows2.join('');
+      inner.style.height = 'auto';
+    }
+  }
+
+  function init() {
+    buildLayerChecks();
+    wireRouting();
+    wireTimeline();
+    wireGraph();
+    wireHeatmap();
+    wireModal();
+    wireKeyboard();
+    wireToolbar();
+
+    observeResize($('#histCanvas') ? $('#histCanvas').parentNode : null, drawHistogram);
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState !== 'visible') return;
+      if (!S.demoOverride) refresh();
+      if (currentView === 'graph' && G.alpha > 0.01) kickGraph();
+    });
+
+    window.addEventListener('unhandledrejection', function (ev) {
+      /* single safety net: never let a stray promise reach the console */
+      ev.preventDefault();
+      var msg = ev.reason && (ev.reason.message || ev.reason);
+      showBanner('操作未完成：' + (msg || '未知错误'));
+    });
+
+    var initial = parseHash();
+    currentView = initial;
+    if (!location.hash) {
+      try { history.replaceState(null, '', '#' + initial); } catch (e) { location.hash = '#' + initial; }
+    }
+    activateView(initial);
+
+    renderSkeleton();
+    setPill();
+    refresh();
+    setInterval(pollTick, POLL_MS);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</body>
+</html>
