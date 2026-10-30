@@ -240,6 +240,15 @@ dsh plugin add ./deepseek-brain
 
 ## 6. 可视化
 
+### 6.0 不装插件也能先看
+
+```bash
+node tools/serve.mjs --demo        # → http://127.0.0.1:7801/deepseek-brain/
+# 等价：npm run serve
+```
+
+它用的是插件挂到 DSH `webServer` 上的**同一个** `lib/server.js` handler，所以预览里看到的和 `brain_dashboard` 返回的完全一致：仪表盘、3D 大脑、`api/state` 都在同一个端口上。数据目录默认就是 `~/.deepseek-brain`，`--data ./tmp` 换地方、`--port 7802` 换端口、不传 `--demo` 则只在空库时播种。
+
 ### 6.1 对话内：`brain_visualize`
 
 ASCII 脑图（见第 3 节）+ 健康面板：总记忆数、本周新增、遗忘压缩数、巩固次数、平均重要度、活跃主题、分层条数、最近巩固时间。框线按 CJK 双宽对齐，终端里不会撕裂。
@@ -389,7 +398,7 @@ deepseek-brain/
 │   ├── dashboard.html        # 仪表盘（单文件）
 │   └── vendor/               # three.js 全局构建
 ├── dist/deepseek-brain-3d.html  # 单文件 3D 大脑（构建产物）
-├── tools/                    # build-3d / build-global-three / demo
+├── tools/                    # serve（本地预览）/ demo / build-3d / build-global-three
 ├── test/                     # 48 个 Node 原生测试
 ├── docs/
 │   ├── API.md                # 前端契约（端点 + state JSON 结构 + 脑区锚点）

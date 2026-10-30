@@ -23,6 +23,7 @@
   },
   "scripts": {
     "test": "node --test test/",
+    "serve": "node tools/serve.mjs --demo",
     "build:3d": "node tools/build-3d.mjs",
     "build:three": "node tools/build-global-three.mjs",
     "demo": "node tools/demo.mjs"
