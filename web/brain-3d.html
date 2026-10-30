@@ -2209,6 +2209,7 @@
     } else if (APP.mode !== 'section' && !REDUCED && sectionAnim.t > 0.01) {
       flyTo({ theta: TUNING.THETA0, phi: TUNING.PHI0, radius: TUNING.CAM_DIST,
         target: new THREE.Vector3(0, -0.06, 0) }, 0.85);
+      setStatus('观测 · 全景', '剖面已闭合 · 标本复原', '');
     }
     syncReads();
   }
