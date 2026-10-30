@@ -144,6 +144,8 @@
     text-overflow:ellipsis;white-space:nowrap}
   .hit-score{font-size:11px;font-variant-numeric:tabular-nums;color:var(--cel)}
   .hit-sub{font-size:8.5px;color:var(--bone-34);letter-spacing:.06em;margin:1px 0 4px 19px}
+  .hit-noparts{grid-column:1 / -1;font-size:8.5px;line-height:1.6;color:var(--bone-34);
+    letter-spacing:.03em;padding:2px 0 1px}
   .parts{display:grid;grid-template-columns:34px 1fr 30px;gap:2px 5px;margin-left:19px;
     font-size:8px;color:var(--bone-34);letter-spacing:.04em;align-items:center}
   .parts .pb{height:3px;background:rgba(230,224,210,.10);position:relative}
@@ -160,6 +162,27 @@
   .e-sub{font-size:9.5px;color:var(--bone-34);letter-spacing:.04em;margin:0 0 8px}
   .e-detail{font-size:10px;line-height:1.7;color:var(--bone-70);margin:0 0 10px;
     border-left:1px solid var(--line2);padding-left:8px}
+  /* 记忆原文：目镜里唯一“写字”的地方 */
+  .e-orig{margin:0 0 10px;padding:9px 10px 8px 11px;border-left:1px solid var(--c);
+    background:linear-gradient(90deg,rgba(230,224,210,.035),rgba(230,224,210,0) 78%)}
+  .e-orig .q{font-family:var(--serif);font-size:12.5px;line-height:1.78;letter-spacing:.015em;
+    color:var(--bone);margin:0}
+  .e-orig .q .m{color:var(--c);font-style:normal}
+  .e-orig .note{font-family:var(--serif);font-size:10px;line-height:1.72;color:var(--bone-50);
+    margin:6px 0 0;letter-spacing:.01em}
+  .e-orig .rule{font-family:var(--serif);font-size:12px;line-height:1.7;color:var(--bone);margin:0;
+    display:flex;gap:7px;align-items:baseline}
+  .e-orig .rule:before{content:"§";font-family:var(--mono);font-size:9px;color:var(--c);letter-spacing:0}
+  .e-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 12px;margin-top:8px;
+    padding-top:7px;border-top:1px dashed rgba(230,224,210,.14);font-family:var(--mono);
+    font-size:8px;letter-spacing:.12em;color:var(--bone-34)}
+  .e-meta i{display:block;font-style:normal}
+  .e-meta b{display:block;font-family:var(--serif);font-weight:400;font-size:10.5px;letter-spacing:.02em;
+    color:var(--bone-70);margin-top:2px;font-variant-numeric:tabular-nums}
+  .e-triple{font-family:var(--serif);font-size:12.5px;line-height:1.7;color:var(--bone);margin:0}
+  .e-triple .rel{font-family:var(--mono);font-size:8px;letter-spacing:.16em;color:var(--c);
+    padding:0 4px;vertical-align:1px}
+  .e-triple .ar{font-family:var(--mono);font-size:9px;color:var(--bone-34);padding:0 3px}
   .e-tags{display:flex;gap:5px;flex-wrap:wrap;margin:0 0 6px}
   .e-tag{display:inline-block;font-size:8.5px;letter-spacing:.12em;border:1px solid var(--cin-dim);
     color:var(--cin);padding:1px 5px;vertical-align:1px}
@@ -819,6 +842,7 @@
   renderer.setPixelRatio(QUALITY.pixelRatio);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NoToneMapping;
+  renderer.localClippingEnabled = true;
   renderer.setClearColor(0x07080a, 1);
 
   var scene = new THREE.Scene();
@@ -943,12 +967,19 @@
                  buildHemisphereGeometry(-1, QUALITY.seg[0], QUALITY.seg[1])];
   var matBack = new THREE.MeshBasicMaterial({ color: 0x565a56, vertexColors: true, transparent: true, opacity: 0.20,
     side: THREE.BackSide, depthWrite: false, blending: THREE.NormalBlending, fog: false });
+  /* 剖面：一块会走的裁剪面从额极扫到纵裂，半球是真的被切开的 */
+  var sectionClip = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 3.0);
+  var sectionAnim = { t: 0, target: 0 };
   /* the specimen is lit, not glowing: baked vertex colour carries the sulcal
      occlusion, a real key light carries the form. */
   var matFront = new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.55, metalness: 0.05, emissive: 0x15140f, emissiveIntensity: 0.55,
     transparent: false, opacity: 1, depthWrite: true, side: THREE.FrontSide, fog: false,
   });
+  matFront.clippingPlanes = [sectionClip];
+  matFront.clipping = true;
+  matBack.clippingPlanes = [sectionClip];
+  matBack.clipping = true;
   var hemis = [];
   hemiGeo.forEach(function (g, i) {
     var back = new THREE.Mesh(g, matBack); back.renderOrder = 2; world.add(back);
@@ -1062,8 +1093,49 @@
     };
   }
 
-  function V(x, y, z) { return new THREE.Vector3(x, y, z); }
-  function curvePoints(a, b, bow, n, bowSign) {
+  /* 检索会沿束把走过的路段点着：脉冲是头，痕迹是尾 */
+  var traceBuf = makeLineBuffer(1400, 1);
+  traceBuf.mesh.renderOrder = 7;
+  /* 检索痕迹要能透过皮质被看见，与 engram 的 X 光叠加同一语义 */
+  traceBuf.mesh.material.depthTest = false;
+  world.add(traceBuf.mesh);
+  var traces = [];
+
+  function spawnTrace(path, color, delay, dur, alpha, tail) {
+    if (!path || path.length < 2) return;
+    if (traces.length > 24) traces.shift();
+    traces.push({ path: path, color: color, t: -(delay || 0), dur: dur || 0.8,
+      alpha: alpha == null ? 0.75 : alpha, tail: tail == null ? 7 : tail });
+  }
+
+  function updateTraces(dt) {
+    if (!traces.length) {
+      if (traceBuf.n) { traceBuf.begin(); traceBuf.commit(); }
+      return;
+    }
+    traceBuf.begin();
+    for (var i = traces.length - 1; i >= 0; i--) {
+      var tr = traces[i];
+      tr.t += dt;
+      if (tr.t < 0) continue;
+      var u = clamp(tr.t / tr.dur, 0, 1);
+      if (u >= 1) { traces.splice(i, 1); continue; }
+      var head = u * (tr.path.length - 1);
+      for (var k = 0; k < tr.path.length - 1 && k <= head; k++) {
+        var behind = head - k - 1;
+        var a = clamp(1 - behind / tr.tail, 0, 1) * tr.alpha;
+        if (a <= 0.004) continue;
+        var p0 = tr.path[k], p1 = tr.path[k + 1];
+        var f = clamp(head - k, 0, 1);
+        traceBuf.seg(p0.x, p0.y, p0.z,
+          lerp(p0.x, p1.x, f), lerp(p0.y, p1.y, f), lerp(p0.z, p1.z, f),
+          tr.color.r, tr.color.g, tr.color.b, a);
+      }
+    }
+    traceBuf.commit();
+  }
+
+  function V(x, y, z) { return new THREE.Vector3(x, y, z); }  function curvePoints(a, b, bow, n, bowSign) {
     var out = [], mid = a.clone().add(b).multiplyScalar(0.5);
     var dir = b.clone().sub(a);
     var up = Math.abs(dir.clone().normalize().y) > 0.9 ? V(1, 0, 0) : V(0, 1, 0);
@@ -1938,18 +2010,19 @@
       return;
     }
     host.innerHTML = APP.hits.map(function (h, i) {
-      var p = h.parts || {};
-      var parts = ['keyword', 'importance', 'freshness', 'vector'].map(function (k) {
+      var p = h.parts || null;
+      var parts = p ? ['keyword', 'importance', 'freshness', 'vector'].map(function (k) {
         var v = clamp(num(p[k], 0), 0, 1);
         return '<span>' + PART_LABEL[k] + '</span><span class="pb"><i style="width:' +
           (v * 100).toFixed(0) + '%"></i></span><span class="pv">' + v.toFixed(2) + '</span>';
-      }).join('');
+      }).join('') : '<span class="hit-noparts">分数分解未随这条事件下发 · 在左侧检索台重跑可得四分量</span>';
       var layerLabel = REGION[h.layer] ? REGION[h.layer].label : h.layer;
       return '<li class="hit" data-id="' + escapeHTML(h.id) + '">' +
         '<div class="hit-top"><span class="hit-rank">' + pad2(i + 1) + '</span>' +
         '<span class="hit-title">' + escapeHTML(truncate(h.title || h.id, 26)) + '</span>' +
         '<span class="hit-score">' + num(h.score, 0).toFixed(3) + '</span></div>' +
-        '<div class="hit-sub">' + escapeHTML(layerLabel) + ' · s=' + num(h.strength, 0).toFixed(2) + '</div>' +
+        '<div class="hit-sub">' + escapeHTML(layerLabel) +
+          (h.strength == null ? '' : ' · s=' + num(h.strength, 0).toFixed(2)) + '</div>' +
         '<div class="parts">' + parts + '</div></li>';
     }).join('');
     [].forEach.call(host.querySelectorAll('.hit'), function (li) {
@@ -2017,8 +2090,7 @@
         '</span></span></div>' +
         '<h3 class="e-title">' + escapeHTML(rec.title) + '</h3>' +
         (tags ? '<div class="e-tags">' + tags + '</div>' : '') +
-        '<p class="e-sub">' + escapeHTML(rec.sub || '') + '</p>' +
-        (rec.detail ? '<p class="e-detail">' + escapeHTML(truncate(rec.detail, 220)) + '</p>' : '') +
+        origBlock(rec) +
         '<dl class="kv">' +
           '<dt>id</dt><dd>' + escapeHTML(rec.id) + '</dd>' +
           '<dt>slot u / v</dt><dd><b>' + slot.u.toFixed(2) + ' / ' + slot.v.toFixed(2) + '</b></dd>' +
@@ -2057,6 +2129,44 @@
     $('forgetBtn').disabled = false;
   }
 
+  /* 记忆原文：不是字段罗列，而是这条记忆当初被写下的那句话 */
+  function origBlock(rec) {
+    var r = rec.raw || {};
+    function meta2(rows) {
+      return '<div class="e-meta">' + rows.map(function (kv) {
+        return '<div><i>' + escapeHTML(kv[0]) + '</i><b>' + kv[1] + '</b></div>';
+      }).join('') + '</div>';
+    }
+    if (rec.layer === 'semantic') {
+      var chain = '';
+      if (r.supersedes) chain = '<p class="note">本条覆盖旧值 ' + escapeHTML(String(r.supersedes)) +
+        '，旧版本仍留在历史里（[已修正]），可经 brain_recall 取回。</p>';
+      else if (r.status === 'corrected') chain = '<p class="note">已被后续事实修正：详见同主体的 [已修正] 新条目。</p>';
+      return '<div class="e-orig"><p class="e-triple">' +
+        escapeHTML(String(r.subject || '—')) + '<span class="ar">→</span><span class="rel">' +
+        escapeHTML(String(r.relation || '关联')) + '</span><span class="ar">→</span>' +
+        escapeHTML(String(r.object || '—')) + '</p>' + chain + '</div>';
+    }
+    if (rec.layer === 'procedural') {
+      return '<div class="e-orig"><p class="rule">' + escapeHTML(String(r.rule || rec.title)) + '</p>' +
+        '<p class="note">这条规程作为默认行为注入 system prompt；命中 ' + num(r.hits, 0) +
+        ' 次，强度 ' + num(r.strength, 0).toFixed(2) + '。</p></div>';
+    }
+    if (rec.layer === 'episodic') {
+      var who = (r.participants || []).length ? escapeHTML(r.participants.join('、')) : '只有你与它';
+      var emo = r.emotion ? escapeHTML(r.emotion) : '—';
+      var orig = '<div class="e-orig"><p class="q">' + escapeHTML(String(r.event || rec.title)) +
+        (r.place ? '<span class="m"> · ' + escapeHTML(String(r.place)) + '</span>' : '') + '</p>' +
+        (r.detail ? '<p class="note">' + escapeHTML(truncate(String(r.detail), 260)) + '</p>' : '') +
+        meta2([['T · 发生', escapeHTML(fmtClock(r.ts || rec.ts))],
+               ['WHERE · 地点', r.place ? escapeHTML(String(r.place)) : '—'],
+               ['WHO · 参与者', who],
+               ['FEEL · 情绪', emo]]) + '</div>';
+      return orig;
+    }
+    return '<p class="e-sub">' + escapeHTML(rec.sub || '') + '</p>';
+  }
+
   function renderReport(html, forId) {
     APP.report = { html: html, forId: forId || APP.selected, at: Date.now() };
     engramPanelRender();
@@ -2091,12 +2201,35 @@
       el.setAttribute('aria-pressed', APP.mode === m[1] ? 'true' : 'false');
       el.classList.toggle('on', APP.mode === m[1]);
     });
-    sectionPlane.visible = APP.mode === 'section';
-    if (hemis[1]) hemis[1].visible = APP.mode !== 'section';
+    sectionAnim.target = APP.mode === 'section' ? 1 : 0;
     if (APP.mode === 'section' && !REDUCED) {
-      flyTo({ theta: Math.PI * 0.5, phi: 1.46, radius: 3.9, target: new THREE.Vector3(0, -0.05, 0) });
+      flyTo({ theta: Math.PI * 0.5 + 0.04, phi: 1.50, radius: 6.30,
+        target: new THREE.Vector3(-0.10, -0.06, 0) }, 1.05);
+      setStatus('剖面 · 纵切', '裁剪面自额极扫向纵裂 · 拖拽可绕切面观察', '');
+    } else if (APP.mode !== 'section' && !REDUCED && sectionAnim.t > 0.01) {
+      flyTo({ theta: TUNING.THETA0, phi: TUNING.PHI0, radius: TUNING.CAM_DIST,
+        target: new THREE.Vector3(0, -0.06, 0) }, 0.85);
     }
     syncReads();
+  }
+
+  /* 裁剪面推进：0 = 完整标本，1 = 纵裂切开（切面停在 x≈0） */
+  function updateSection(dt) {
+    var t = sectionAnim.t, target = sectionAnim.target;
+    if (Math.abs(t - target) > 0.0008) {
+      t += (target - t) * clamp(dt * 3.4, 0, 1);
+      if (Math.abs(t - target) < 0.0015) t = target;
+      sectionAnim.t = t;
+    }
+    var e = easeInOutCubic(clamp(t, 0, 1));
+    var c = lerp(3.10, 0.015, e);
+    sectionClip.constant = c;
+    sectionPlane.visible = t > 0.006;
+    sectionPlane.position.x = c;
+    sectionPlane.material.opacity = 0.12 + 0.34 * e;
+    /* 切开后收掉内壁的雾状背面，让切面读成一张干净的薄片 */
+    matBack.opacity = 0.20 - 0.155 * e;
+    if (rimMat && rimMat.uniforms) rimMat.uniforms.uAmt.value = (QUALITY.rim ? 0.16 : 0) * (1 - 0.85 * e);
   }
 
   function traceRecall(rec) {
@@ -2182,6 +2315,16 @@
     var strip = anchorVec('sensory');
     spawnPulse(curvePoints(strip.clone().addScaledVector(new THREE.Vector3(0, 0.42, 0.10)), strip, 0.04, 10),
       new THREE.Color(REGION.sensory.color), 0.05, 0.34, 0);
+    /* 海马索引环被点亮：候选集在这里成形 */
+    if (hits.length) {
+      var hub = anchorVec('episodic'), ring = [];
+      for (var r = 0; r <= 30; r++) {
+        var a2 = r / 30 * Math.PI * 2;
+        ring.push(new THREE.Vector3(hub.x + Math.cos(a2) * 0.30, hub.y + Math.sin(a2) * 0.24,
+          hub.z + Math.sin(a2 * 2.0) * 0.06));
+      }
+      spawnPulse(ring, new THREE.Color('#e6e0d2'), 0.030, 0.62, 0.14);
+    }
     hits.slice(0, 6).forEach(function (h, i) {
       var norm = clamp(num(h.score, 0) / maxScore, 0.12, 1) * (factor == null ? 1 : factor);
       var rec = APP.model && APP.model.byId[h.id];
@@ -2189,14 +2332,29 @@
       var col = new THREE.Color(REGION[h.layer] ? REGION[h.layer].color : '#e6e0d2');
       var path = recallPath(target);
       spawnPulse(path, col, 0.040 + 0.070 * norm, 0.55 + 0.50 * (1 - norm), 0.03 + i * 0.05);
-      /* 分叉数 ∝ score */
+      spawnTrace(path, col, 0.03 + i * 0.05, 0.52 + 0.46 * (1 - norm), 0.26 + 0.40 * norm, 6 + 6 * norm);
+      /* 侧支：沿束从不同高度剥出，越靠后越细越短——不是终点放烟花 */
       var branches = 1 + Math.round(norm * 4);
-      var fork = path[path.length - 1 - Math.min(5, path.length - 1)];
+      var from2 = Math.floor(path.length * 0.52);
       for (var b = 0; b < branches; b++) {
-        var ang = b / branches * Math.PI * 2;
-        var end = target.clone().add(new THREE.Vector3(Math.cos(ang) * 0.19, Math.sin(ang) * 0.19,
-          Math.cos(ang * 1.7) * 0.15));
-        spawnPulse([fork.clone(), end], col, 0.028 + 0.035 * norm, 0.34 + 0.2 * norm, 0.36 + b * 0.05);
+        var k = Math.min(path.length - 2, from2 + b * 3);
+        var a0 = path[k], a1 = path[k + 1];
+        var dir = a1.clone().sub(a0).normalize();
+        if (!isFinite(dir.x) || dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
+        var side = new THREE.Vector3(0, 1, 0).cross(dir);
+        if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
+        side.normalize();
+        var up = dir.clone().cross(side).normalize();
+        var ang = (b / Math.max(1, branches)) * Math.PI * 2 + 0.55;
+        var reach = (0.11 + 0.16 * norm) * (1 - 0.18 * b);
+        var end = a0.clone()
+          .addScaledVector(side, Math.cos(ang) * reach)
+          .addScaledVector(up, Math.sin(ang) * reach)
+          .addScaledVector(dir, 0.05 + 0.06 * norm);
+        spawnPulse(curvePoints(a0.clone(), end, 0.14, 7), col,
+          0.018 + 0.028 * norm * (1 - 0.1 * b), 0.26 + 0.20 * norm, 0.26 + b * 0.045);
+        spawnTrace(curvePoints(a0.clone(), end, 0.14, 7), col,
+          0.26 + b * 0.045, 0.24 + 0.18 * norm, 0.24 + 0.30 * norm, 3.4);
       }
     });
   }
@@ -2469,7 +2627,8 @@
       var hits = (ev.hits || []).map(function (h) {
         var base = prev[h.id] || {};
         return { id: h.id, layer: h.layer, score: num(h.score, base.score || 0.3),
-          strength: base.strength, parts: base.parts, title: base.title, detail: base.detail };
+          strength: h.strength != null ? h.strength : base.strength,
+          parts: h.parts || base.parts, title: h.title || base.title, detail: base.detail };
       });
       APP.lastRecallQuery = ev.query || APP.lastRecallQuery;
       var now = Date.now();
@@ -2767,8 +2926,10 @@
       if (APP.hudOn) hudRender();
     }
     tickCamera(dt);
+    updateSection(dt);
     updateMoving(dt);
     updatePulses(dt);
+    updateTraces(dt);
     labelAcc += dt;
     if (labelAcc >= 0.05) {
       updateLabels();

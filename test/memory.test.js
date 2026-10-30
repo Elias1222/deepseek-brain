@@ -62,6 +62,21 @@ test('recall finds memories and bumps their use counters', async () => {
   assert.equal(memory.stats.counters.recalls, 1);
 });
 
+test('recall activity carries the score breakdown so the operator panel is not blank', async () => {
+  const memory = await makeMemory().init();
+  memory.remember({ layer: 'episodic', event: '和张伟在望京开会，讨论排期', importance: 5, participants: ['张伟'], place: '望京' });
+  memory.recall('张伟 排期');
+  const event = memory.activity.recent(1)[0];
+  assert.equal(event.kind, 'recall');
+  assert.ok(typeof event.took === 'number', 'took is elapsed milliseconds');
+  const hit = event.hits[0];
+  assert.equal(hit.id, memory.episodic[0].id);
+  assert.equal(typeof hit.score, 'number');
+  assert.ok(hit.title.includes('张伟'));
+  assert.ok(hit.parts && typeof hit.parts.keyword === 'number');
+  assert.ok(typeof hit.strength === 'number');
+});
+
 test('forget archives instead of deleting', async () => {
   const memory = await makeMemory().init();
   const { item } = memory.remember({ layer: 'episodic', event: '临时事项', importance: 2 });

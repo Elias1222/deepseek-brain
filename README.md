@@ -311,7 +311,15 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 | 检索台 | 真的 `POST /api/recall`，命中项按 `score` 亮起并连出白质纤维束 |
 | 「睡眠 / 衰减 / 遗忘」压印按钮 | 真的 `POST /api/sleep`、`/api/decay`、`/api/forget`，迁移与归档在标本上留下路径与残影 |
 
-**三种模式**：`观测`（全景标本）、`目镜`（选中单条记忆的切片）、`剖面`（切开半球看深部结构）。左侧「五区·计数」是解剖板，点一层即定位到该区并展开计数刻度。
+**三种模式**：`观测`（全景标本）、`目镜`（选中单条记忆的切片）、`剖面`（切开半球看深部结构）。
+
+- **剖面**不是隐藏半个半球：一块真裁剪面（`renderer.localClippingEnabled` + `THREE.Plane`）从额极以缓动扫到纵裂，切到哪儿皮质就少到哪儿；切面行进时内壁的雾状背面同时收暗，切面读成一张干净的薄片。相机同时用 1.05 s 飞到侧位，退出剖面自动飞回全景。
+- **检索**沿白质纤维束跑：脉冲头前面走，走过的路段留下一条渐隐的尾迹（单 `LineSegments` 动态缓冲，`depthTest:false`，所以能透过皮质看到），海马索引环先被点亮一整圈，再按 `score` 从束上不同高度剥出侧支——越靠后越细越短，不是终点放烟花。
+- **目镜的「记忆原文」**：情景记忆给的是当初那句话（事件正文 + 地点 + 细节引文 + `T / WHERE / WHO / FEEL` 四格）；语义记忆给 `主体 → 关系 → 客体` 的三段式与 `[已修正]` 血缘；程序记忆给规则原文与命中次数。下面才是寻址与分解数字。
+
+| 剖面（裁剪面扫到纵裂） | 检索轨迹与目镜 |
+| --- | --- |
+| ![剖面](docs/screenshots/brain3d-section.png) | ![目镜](docs/screenshots/brain3d-eyepiece.png) |
 
 **手势（Pointer Events，鼠标与触屏同一套）**
 
@@ -325,9 +333,9 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 
 ![3D 记忆观测仪](docs/screenshots/brain3d.png)
 
-| 点开一枚 engram 的目镜（真实 CDP 点击） | 手机（390 px） |
-| --- | --- |
-| ![目镜](docs/screenshots/brain3d-eyepiece.png) | ![移动端](docs/screenshots/brain3d-mobile.png) |
+| 手机（390 px，真 device metrics） |
+| --- |
+| ![移动端](docs/screenshots/brain3d-mobile.png) |
 
 **几何与脑区映射**（`BRAIN = {AX 1.42, AY 1.50, AZ 1.98}`）
 
@@ -355,7 +363,7 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 ## 7. 测试与调试
 
 ```bash
-node --test test/            # 61 个用例：分层算法 / 存储 / 记忆系统 / HTTP API / 活动流 / 插件契约 / 前端产物
+node --test test/            # 62 个用例：分层算法 / 存储 / 记忆系统 / HTTP API / 活动流 / 插件契约 / 前端产物
 node tools/demo.mjs          # 灌入 20 条演示记忆并打印脑图
 DEEPSEEK_BRAIN_DIR=/tmp/brain node tools/demo.mjs   # 用临时数据目录，不碰真实记忆
 ```
@@ -385,10 +393,10 @@ DEEPSEEK_BRAIN_DIR=/tmp/brain node tools/demo.mjs   # 用临时数据目录，�
 
 | 项 | 结果 |
 | --- | --- |
-| `node --test test/` | 61 pass / 0 fail |
+| `node --test test/` | 62 pass / 0 fail |
 | 真实安装 | `dsh plugin --profile brain-selftest add ./deepseek-brain` → pnpm link 成功，`dsh.profile.bundles` 自动写入 `deepseek-brain`，`dsh --dump-config` 出现 `- id: deepseek-brain` |
 | 真实 HTTP | `dashboard.html` / `brain-3d.html` / `vendor/three.global.min.js` / `api/state` 全部 200，`api/state` 10 KB（v2 增加了 salience/预报/活动序号），regions 计数与库内条数一致 |
-| 真实检索 | `POST /api/recall {"query":"张伟 会议 排期"}` → 3 命中，top 0.624，活动流记下 `#001 检索「张伟 会议 排期」· 3 命中 · 3ms` |
+| 真实检索 | `POST /api/recall {"query":"张伟 会议 排期"}` → 3 命中，top 0.624，`tookMs` 实测 31–46 ms；活动流里同一条事件带回 `parts/strength/title`，所以别人的检索在观测仪上也不是空条 |
 | 遗忘预报 | importance 1 的新条目 `forgetInDays = 13.86`；`?at=%2B10d` 后同一条变 `3.86`；`importance ≥ 4` 一律 `null`（pinned） |
 | 20 天剧本（λ=0.08） | sleep `{"migrated":3,"compressed":0,"pruned":0,"digests":0,"kept":9}`，重载后 episodic 9 条、archive 与 backups 一致 |
 | 3D 交互 | CDP 真实点击 engram：相机飞入 + 目镜列出 `id / slot u,v / 盘内 r,θ / anchor / ageDays / strength / salience / hits / ts / 遗忘预报`；`飞入 / 检索轨迹 / 遗忘此条` 三个按钮均打到真实端点 |
