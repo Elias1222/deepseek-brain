@@ -452,7 +452,7 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     low: small || weak,
     antialias: !(small || weak),
     pixelRatio: small ? Math.min(dpr, 1.5) : dpr,
-    seg: small ? [96, 72] : [176, 132],
+    seg: small ? [104, 80] : [224, 168],
     shell: !(small || weak),
     rim: !(small || weak),
     stars: small ? 340 : 760,
@@ -973,8 +973,10 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     /* 额叶 */
     { id: 'frontal-sup',   w: 0.046, depth: 0.68, pts: [[0.22, 0.94, 0.60], [0.42, 0.86, 0.60], [0.64, 0.70, 0.56], [0.82, 0.48, 0.52]] },
     { id: 'frontal-inf',   w: 0.044, depth: 0.64, pts: [[0.32, 0.62, 0.74], [0.52, 0.50, 0.72], [0.74, 0.34, 0.68]] },
-    /* 顶叶 */
+    /* 顶叶：顶内沟 + 顶上沟 + 顶枕外侧支（补掉原先的空档） */
     { id: 'intraparietal', w: 0.046, depth: 0.66, pts: [[0.30, 0.78, -0.34], [0.52, 0.62, -0.40], [0.74, 0.40, -0.44]] },
+    { id: 'parietal-sup',  w: 0.044, depth: 0.62, pts: [[0.22, 0.90, -0.12], [0.46, 0.82, -0.18], [0.68, 0.64, -0.22], [0.84, 0.40, -0.24]] },
+    { id: 'parieto-lat',   w: 0.042, depth: 0.58, pts: [[0.16, 0.66, -0.62], [0.42, 0.44, -0.66], [0.66, 0.22, -0.68]] },
     /* 颞叶 */
     { id: 'sts',           w: 0.054, depth: 0.82, pts: [[0.86, -0.54, 0.62], [0.94, -0.58, 0.20], [0.95, -0.56, -0.22], [0.88, -0.52, -0.52]] },
     { id: 'temporal-inf',  w: 0.044, depth: 0.62, pts: [[0.84, -0.74, 0.44], [0.90, -0.78, 0.04], [0.88, -0.76, -0.34]] },
@@ -1038,23 +1040,36 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     return _sk;
   }
 
-  function hemiPoint(px, py, pz, side) {
+  /* 皮层高度场：一级沟深槽 + 沿沟平行的次级沟 + 三级沟倍频 + Voronoi 顶冠。
+     抽成独立函数，既是顶点位移的来源，也是法线贴图的烘焙源——两者必须同源。 */
+  var _det = { sul: 0, bump: 0, warpA: 0, warpB: 0 };
+  function surfaceDetail(px, py, pz) {
     var warpA = fbm(px * 3.1 + 11.3, py * 3.1 - 4.1, pz * 3.1 + 7.7, 3);
     var warpB = fbm(px * 4.6 - 2.9, py * 4.6 + 9.2, pz * 4.6 - 5.4, 3);
     var near = sulcusField(px, py, pz);
-    /* 一级沟：以骨架为中心的深槽，宽度取自它自己那一条 */
+    /* 脑回宽度按叶区调制：额极更宽（相位更疏），枕极更细，中央区取中 */
+    var gf = 1.0 - 0.15 * smoothstep(0.0, 0.90, pz) + 0.20 * smoothstep(0.10, -0.85, pz);
     var primary = Math.exp(-Math.pow(near.d1 / near.w, 2.0)) * near.depth;
-    /* 次级沟：相位由「弧长 + 到沟的距离」混合而成，沿最近的沟平行铺开 */
-    var phase = (near.phase + warpA * 0.48 + warpB * 0.22) * Math.PI;
+    var phase = (near.phase * gf + warpA * 0.48 + warpB * 0.22) * Math.PI;
     var band = Math.abs(Math.sin(phase));
-    var secondary = (1 - smoothstep(0.0, 0.215, band)) * 0.88;
-    /* 三级：同相位的倍频，压掉「同心圆」的机械感 */
-    var tert = Math.abs(Math.sin((near.phase * 2.6 - warpB * 1.0) * Math.PI));
+    var secondary = (1 - smoothstep(0.0, 0.215 * (0.9 + 0.1 * gf), band)) * 0.88;
+    var tert = Math.abs(Math.sin((near.phase * gf * 2.6 - warpB * 1.0) * Math.PI));
     var tertiary = (1 - smoothstep(0.0, 0.13, tert)) * 0.24;
-    /* Voronoi：两条一级沟势力范围的分界线上抬成脑回顶冠，避免出现平台 */
     var wall = near.d2 < 8 ? Math.exp(-Math.pow((near.d2 - near.d1) / 0.055, 2.0)) : 0;
     var sul = Math.max(primary, Math.max(secondary, tertiary));
-    var bump = (1 - sul) * 0.55 + 0.45 * warpA + 0.18 * wall;
+    _det.sul = sul;
+    _det.bump = (1 - sul) * 0.55 + 0.45 * warpA + 0.18 * wall;
+    _det.warpA = warpA;
+    _det.warpB = warpB;
+    return _det;
+  }
+
+  function hemiPoint(px, py, pz, side) {
+    var warpA = fbm(px * 3.1 + 11.3, py * 3.1 - 4.1, pz * 3.1 + 7.7, 3);
+    var warpB = fbm(px * 4.6 - 2.9, py * 4.6 + 9.2, pz * 4.6 - 5.4, 3);
+    var det = surfaceDetail(px, py, pz);
+    var warpA = det.warpA, warpB = det.warpB;
+    var sul = det.sul, bump = det.bump;
     var disp = 1 + 0.094 * bump - 0.118 * sul;
     /* 叶形半径：同一条射线上的边界由四叶并集给出，不再是单位球 */
     var lobe = lobeRadius(px, py, pz, side) * LOBE_K;
