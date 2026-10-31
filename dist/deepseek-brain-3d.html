@@ -959,12 +959,30 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
        · 次级沟：以 d 为相位，沿骨架平行展开（并叠一点 fbm 让它们不那么规整）
      ==================================================================== */
   var SULCI = [
-    { id: 'central',  w: 0.070, depth: 1.00, pts: [[0.12, 0.92, 0.28], [0.30, 0.80, 0.22], [0.52, 0.62, 0.12], [0.74, 0.38, 0.02], [0.90, 0.10, -0.06]] },
-    { id: 'sylvian',  w: 0.080, depth: 1.05, pts: [[0.80, -0.20, 0.74], [0.90, -0.28, 0.42], [0.95, -0.30, 0.06], [0.94, -0.26, -0.28]] },
-    { id: 'parieto',  w: 0.058, depth: 0.86, pts: [[0.10, 0.70, -0.52], [0.38, 0.48, -0.56], [0.66, 0.20, -0.52], [0.86, -0.06, -0.44]] },
-    { id: 'sts',      w: 0.052, depth: 0.80, pts: [[0.86, -0.52, 0.62], [0.94, -0.56, 0.20], [0.95, -0.54, -0.22], [0.88, -0.50, -0.52]] },
-    { id: 'frontal',  w: 0.050, depth: 0.72, pts: [[0.55, 0.72, 0.55], [0.72, 0.55, 0.66], [0.88, 0.30, 0.70]] },
-    { id: 'cingulate', w: 0.046, depth: 0.70, pts: [[0.06, 0.72, 0.42], [0.10, 0.30, 0.10], [0.12, -0.10, -0.28]] }
+    /* 中央沟：主干 + 上端向后上的一段 + 下端向前下的一段（形成 Y 形分叉） */
+    { id: 'central',       w: 0.068, depth: 1.00, pts: [[0.10, 0.94, 0.20], [0.30, 0.84, 0.14], [0.55, 0.66, 0.06], [0.78, 0.40, -0.02], [0.92, 0.14, -0.10]] },
+    { id: 'central-asc',   w: 0.046, depth: 0.72, pts: [[0.10, 0.94, 0.20], [0.07, 0.97, -0.08], [0.05, 0.95, -0.32]] },
+    { id: 'central-desc',  w: 0.044, depth: 0.66, pts: [[0.92, 0.14, -0.10], [0.88, 0.02, 0.18], [0.80, -0.12, 0.42]] },
+    /* 中央前沟 / 中央后沟：夹出「中央前回 / 中央后回」两条带 */
+    { id: 'precentral',    w: 0.048, depth: 0.74, pts: [[0.10, 0.88, 0.48], [0.34, 0.78, 0.44], [0.60, 0.58, 0.38], [0.84, 0.32, 0.30]] },
+    { id: 'postcentral',   w: 0.046, depth: 0.70, pts: [[0.10, 0.88, -0.06], [0.34, 0.78, -0.12], [0.60, 0.58, -0.18], [0.84, 0.32, -0.24]] },
+    /* 外侧裂：主干 + 升支（隔开额下回与颞前部）+ 后支（伸向角回） */
+    { id: 'sylvian',       w: 0.082, depth: 1.05, pts: [[0.84, -0.18, 0.74], [0.92, -0.28, 0.42], [0.96, -0.32, 0.06], [0.94, -0.28, -0.30]] },
+    { id: 'sylvian-ramus', w: 0.050, depth: 0.78, pts: [[0.90, -0.16, 0.40], [0.84, 0.12, 0.44], [0.74, 0.36, 0.46]] },
+    { id: 'sylvian-post',  w: 0.048, depth: 0.74, pts: [[0.94, -0.28, -0.30], [0.88, -0.22, -0.56], [0.76, -0.12, -0.74]] },
+    /* 额叶 */
+    { id: 'frontal-sup',   w: 0.046, depth: 0.68, pts: [[0.22, 0.94, 0.60], [0.42, 0.86, 0.60], [0.64, 0.70, 0.56], [0.82, 0.48, 0.52]] },
+    { id: 'frontal-inf',   w: 0.044, depth: 0.64, pts: [[0.32, 0.62, 0.74], [0.52, 0.50, 0.72], [0.74, 0.34, 0.68]] },
+    /* 顶叶 */
+    { id: 'intraparietal', w: 0.046, depth: 0.66, pts: [[0.30, 0.78, -0.34], [0.52, 0.62, -0.40], [0.74, 0.40, -0.44]] },
+    /* 颞叶 */
+    { id: 'sts',           w: 0.054, depth: 0.82, pts: [[0.86, -0.54, 0.62], [0.94, -0.58, 0.20], [0.95, -0.56, -0.22], [0.88, -0.52, -0.52]] },
+    { id: 'temporal-inf',  w: 0.044, depth: 0.62, pts: [[0.84, -0.74, 0.44], [0.90, -0.78, 0.04], [0.88, -0.76, -0.34]] },
+    /* 枕叶 */
+    { id: 'parieto',       w: 0.052, depth: 0.80, pts: [[0.10, 0.70, -0.52], [0.38, 0.48, -0.56], [0.66, 0.20, -0.52], [0.86, -0.06, -0.44]] },
+    { id: 'calcarine',     w: 0.046, depth: 0.70, pts: [[0.20, 0.06, -0.84], [0.46, 0.02, -0.80], [0.72, -0.04, -0.72]] },
+    /* 内侧面（剖面才看得见） */
+    { id: 'cingulate',     w: 0.044, depth: 0.66, pts: [[0.06, 0.74, 0.42], [0.10, 0.32, 0.10], [0.12, -0.08, -0.26]] }
   ];
   (function normalizeSulci() {
     SULCI.forEach(function (s) {
@@ -983,11 +1001,16 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     });
   })();
 
-  var _sk = { d: 9, s: 0, w: 0.06, depth: 0.8 };
-  function nearestSulcus(px, py, pz) {
-    var best = 9, bestS = 0, bestW = 0.06, bestD = 0.8;
+  /* 一次遍历同时得到：最近沟 d1 / 次近沟 d2（Voronoi 用）、以及按
+     w_i = exp(-(d_i/0.30)²) 融合的相位——这样在两条沟的势力范围交界处，
+     脑回的走向是平滑过渡的，不会突然从「沿中央沟」跳到「沿中央前沟」。 */
+  var _sk = { d1: 9, d2: 9, w: 0.06, depth: 0.8, phase: 0, poids: 0 };
+  function sulcusField(px, py, pz) {
+    var d1 = 9, d2 = 9, bestW = 0.06, bestD = 0.8;
+    var accW = 0, accP = 0;
     for (var k = 0; k < SULCI.length; k++) {
       var sk = SULCI[k];
+      var best = 9, bestS = 0;
       for (var i = 0; i < sk.v.length - 1; i++) {
         var a = sk.v[i], b = sk.v[i + 1];
         var ex = b[0] - a[0], ey = b[1] - a[1], ez = b[2] - a[2];
@@ -1000,32 +1023,39 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
         if (ang < best) {
           best = ang;
           bestS = (sk.len[i - 1] || 0) + (sk.len[i] - (sk.len[i - 1] || 0)) * tt;
-          bestW = sk.w;
-          bestD = sk.depth;
         }
       }
+      if (best < d1) { d2 = d1; d1 = best; bestW = sk.w; bestD = sk.depth; }
+      else if (best < d2) { d2 = best; }
+      var r = best / 0.30;
+      var wk = Math.exp(-r * r);
+      accW += wk;
+      accP += wk * (bestS * 1.05 + best * 17.0);
     }
-    _sk.d = best; _sk.s = bestS / 1.0; _sk.w = bestW; _sk.depth = bestD;
+    _sk.d1 = d1; _sk.d2 = d2; _sk.w = bestW; _sk.depth = bestD;
+    _sk.poids = accW;
+    _sk.phase = accW > 1e-9 ? accP / accW : d1 * 12.5;
     return _sk;
   }
 
   function hemiPoint(px, py, pz, side) {
     var warpA = fbm(px * 3.1 + 11.3, py * 3.1 - 4.1, pz * 3.1 + 7.7, 3);
     var warpB = fbm(px * 4.6 - 2.9, py * 4.6 + 9.2, pz * 4.6 - 5.4, 3);
-    var near = nearestSulcus(px, py, pz);
-    var d = near.d;
-    /* 一级沟：以骨架为中心的深槽 */
-    var primary = Math.exp(-Math.pow(d / near.w, 2.0)) * near.depth;
-    /* 次级沟：沿骨架平行展开，相位就是角距离（再加 fbm 扰动与前后的弧长项） */
-    var phase = (d * 12.5 + near.s * 1.05 + warpA * 0.48 + warpB * 0.22) * Math.PI;
+    var near = sulcusField(px, py, pz);
+    /* 一级沟：以骨架为中心的深槽，宽度取自它自己那一条 */
+    var primary = Math.exp(-Math.pow(near.d1 / near.w, 2.0)) * near.depth;
+    /* 次级沟：相位由「弧长 + 到沟的距离」混合而成，沿最近的沟平行铺开 */
+    var phase = (near.phase + warpA * 0.48 + warpB * 0.22) * Math.PI;
     var band = Math.abs(Math.sin(phase));
-    var secondary = (1 - smoothstep(0.0, 0.26, band)) * 0.95;
-    /* 三级：更细的一族，压掉「同心圆」的机械感 */
-    var tert = Math.abs(Math.sin((d * 30.0 - near.s * 1.8 + warpB * 1.0) * Math.PI));
-    var tertiary = (1 - smoothstep(0.0, 0.15, tert)) * 0.30;
+    var secondary = (1 - smoothstep(0.0, 0.215, band)) * 0.88;
+    /* 三级：同相位的倍频，压掉「同心圆」的机械感 */
+    var tert = Math.abs(Math.sin((near.phase * 2.6 - warpB * 1.0) * Math.PI));
+    var tertiary = (1 - smoothstep(0.0, 0.13, tert)) * 0.24;
+    /* Voronoi：两条一级沟势力范围的分界线上抬成脑回顶冠，避免出现平台 */
+    var wall = near.d2 < 8 ? Math.exp(-Math.pow((near.d2 - near.d1) / 0.055, 2.0)) : 0;
     var sul = Math.max(primary, Math.max(secondary, tertiary));
-    var bump = (1 - sul) * 0.55 + 0.45 * warpA;
-    var disp = 1 + 0.092 * bump - 0.132 * sul;
+    var bump = (1 - sul) * 0.55 + 0.45 * warpA + 0.18 * wall;
+    var disp = 1 + 0.094 * bump - 0.118 * sul;
     /* 叶形半径：同一条射线上的边界由四叶并集给出，不再是单位球 */
     var lobe = lobeRadius(px, py, pz, side) * LOBE_K;
     var mx = softMax(px, 0.018, 0.085);
