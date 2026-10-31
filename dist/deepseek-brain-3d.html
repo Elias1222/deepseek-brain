@@ -951,25 +951,81 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     return 1 / m;
   })();
 
+  /* ── 一级沟骨架 ───────────────────────────────────────────────────────
+     真实大脑的次级沟是沿着一级沟平行铺开的，不是全局的斜条纹。所以先定义
+     六条一级沟（中央沟、外侧裂、顶枕沟、颞上沟、额上沟、扣带沟）在单位球
+     方向空间里的折线，每个顶点求它到最近骨架的角距离 d 与弧长参数 s：
+       · 一级沟本身：d ≈ 0 处开一道深槽（宽度按各自的 w）
+       · 次级沟：以 d 为相位，沿骨架平行展开（并叠一点 fbm 让它们不那么规整）
+     ==================================================================== */
+  var SULCI = [
+    { id: 'central',  w: 0.070, depth: 1.00, pts: [[0.12, 0.92, 0.28], [0.30, 0.80, 0.22], [0.52, 0.62, 0.12], [0.74, 0.38, 0.02], [0.90, 0.10, -0.06]] },
+    { id: 'sylvian',  w: 0.080, depth: 1.05, pts: [[0.80, -0.20, 0.74], [0.90, -0.28, 0.42], [0.95, -0.30, 0.06], [0.94, -0.26, -0.28]] },
+    { id: 'parieto',  w: 0.058, depth: 0.86, pts: [[0.10, 0.70, -0.52], [0.38, 0.48, -0.56], [0.66, 0.20, -0.52], [0.86, -0.06, -0.44]] },
+    { id: 'sts',      w: 0.052, depth: 0.80, pts: [[0.86, -0.52, 0.62], [0.94, -0.56, 0.20], [0.95, -0.54, -0.22], [0.88, -0.50, -0.52]] },
+    { id: 'frontal',  w: 0.050, depth: 0.72, pts: [[0.55, 0.72, 0.55], [0.72, 0.55, 0.66], [0.88, 0.30, 0.70]] },
+    { id: 'cingulate', w: 0.046, depth: 0.70, pts: [[0.06, 0.72, 0.42], [0.10, 0.30, 0.10], [0.12, -0.10, -0.28]] }
+  ];
+  (function normalizeSulci() {
+    SULCI.forEach(function (s) {
+      s.v = s.pts.map(function (a) {
+        var l = Math.hypot(a[0], a[1], a[2]) || 1;
+        return [a[0] / l, a[1] / l, a[2] / l];
+      });
+      s.len = [];
+      var acc = 0;
+      for (var i = 0; i < s.v.length - 1; i++) {
+        var a = s.v[i], b = s.v[i + 1];
+        acc += Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+        s.len.push(acc);
+      }
+      s.total = acc || 1;
+    });
+  })();
+
+  var _sk = { d: 9, s: 0, w: 0.06, depth: 0.8 };
+  function nearestSulcus(px, py, pz) {
+    var best = 9, bestS = 0, bestW = 0.06, bestD = 0.8;
+    for (var k = 0; k < SULCI.length; k++) {
+      var sk = SULCI[k];
+      for (var i = 0; i < sk.v.length - 1; i++) {
+        var a = sk.v[i], b = sk.v[i + 1];
+        var ex = b[0] - a[0], ey = b[1] - a[1], ez = b[2] - a[2];
+        var ll = ex * ex + ey * ey + ez * ez;
+        var tt = ll > 1e-9 ? ((px - a[0]) * ex + (py - a[1]) * ey + (pz - a[2]) * ez) / ll : 0;
+        tt = tt < 0 ? 0 : (tt > 1 ? 1 : tt);
+        var qx = a[0] + ex * tt, qy = a[1] + ey * tt, qz = a[2] + ez * tt;
+        var ql = Math.hypot(qx, qy, qz) || 1;
+        var ang = Math.acos(clamp((px * qx + py * qy + pz * qz) / ql, -1, 1));
+        if (ang < best) {
+          best = ang;
+          bestS = (sk.len[i - 1] || 0) + (sk.len[i] - (sk.len[i - 1] || 0)) * tt;
+          bestW = sk.w;
+          bestD = sk.depth;
+        }
+      }
+    }
+    _sk.d = best; _sk.s = bestS / 1.0; _sk.w = bestW; _sk.depth = bestD;
+    return _sk;
+  }
+
   function hemiPoint(px, py, pz, side) {
     var warpA = fbm(px * 3.1 + 11.3, py * 3.1 - 4.1, pz * 3.1 + 7.7, 3);
     var warpB = fbm(px * 4.6 - 2.9, py * 4.6 + 9.2, pz * 4.6 - 5.4, 3);
-    var bandA = Math.sin((pz * 10.2 + py * 3.4 + warpA * 5.4) * Math.PI);
-    var bandB = Math.sin((py * 8.6 - pz * 2.2 + warpB * 6.0) * Math.PI);
-    /* a third, finer family: tertiary gyri that break the parallel "sausage rows" */
-    var bandC = Math.sin((pz * 17.4 - py * 6.1 + warpA * 4.2 - warpB * 2.6) * Math.PI);
-    var groove = Math.min(Math.abs(bandA), Math.abs(bandB));
-    var sul = 1 - smoothstep(0.0, 0.30, groove);
-    sul = Math.pow(sul, 1.30);
-    var sulC = 1 - smoothstep(0.0, 0.20, Math.abs(bandC));
-    sul = Math.max(sul, 0.56 * sulC);
+    var near = nearestSulcus(px, py, pz);
+    var d = near.d;
+    /* 一级沟：以骨架为中心的深槽 */
+    var primary = Math.exp(-Math.pow(d / near.w, 2.0)) * near.depth;
+    /* 次级沟：沿骨架平行展开，相位就是角距离（再加 fbm 扰动与前后的弧长项） */
+    var phase = (d * 12.5 + near.s * 1.05 + warpA * 0.48 + warpB * 0.22) * Math.PI;
+    var band = Math.abs(Math.sin(phase));
+    var secondary = (1 - smoothstep(0.0, 0.26, band)) * 0.95;
+    /* 三级：更细的一族，压掉「同心圆」的机械感 */
+    var tert = Math.abs(Math.sin((d * 30.0 - near.s * 1.8 + warpB * 1.0) * Math.PI));
+    var tertiary = (1 - smoothstep(0.0, 0.15, tert)) * 0.30;
+    var sul = Math.max(primary, Math.max(secondary, tertiary));
     var bump = (1 - sul) * 0.55 + 0.45 * warpA;
-    /* landmark sulci: lateral (sylvian) + central */
-    var sylv = Math.exp(-Math.pow((py + 0.16 + 0.10 * Math.sin(pz * 3.0)) / 0.075, 2)) *
-               smoothstep(-1.7, -0.5, pz) * smoothstep(1.4, -0.1, pz);
-    var central = Math.exp(-Math.pow((pz - 0.18 + 0.12 * py) / 0.085, 2)) * smoothstep(0.15, 0.6, Math.abs(py));
-    sul = Math.max(sul, 0.94 * Math.max(sylv, central * 0.78));
-    var disp = 1 + 0.086 * bump - 0.118 * sul;
+    var disp = 1 + 0.092 * bump - 0.132 * sul;
     /* 叶形半径：同一条射线上的边界由四叶并集给出，不再是单位球 */
     var lobe = lobeRadius(px, py, pz, side) * LOBE_K;
     var mx = softMax(px, 0.018, 0.085);
