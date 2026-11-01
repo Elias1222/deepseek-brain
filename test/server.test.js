@@ -433,6 +433,17 @@ test('activity log records cognition and can be polled incrementally', async () 
   });
 });
 
+test('the activity endpoint reports a stable process generation', async () => {
+  await withServer(async ({ origin }) => {
+    const first = await get(origin, '/api/activity?since=0&limit=5');
+    const second = await get(origin, '/api/activity?since=0&limit=5');
+    assert.equal(first.status, 200);
+    assert.equal(typeof first.json.boot, 'string');
+    assert.ok(first.json.boot.length >= 4, 'boot should be a short non-empty id');
+    assert.equal(first.json.boot, second.json.boot, 'the boot id must not change inside one process');
+  });
+});
+
 test('conflicts expose groups and prune archives the surplus', async () => {
   await withServer(async ({ origin }) => {
     for (const object of ['设计师', '交互设计师', '产品设计师']) {

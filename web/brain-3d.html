@@ -2481,6 +2481,19 @@
           }),
         });
       });
+      var boot = res && res.boot ? String(res.boot) : '';
+      var known = '';
+      try { known = window.localStorage.getItem('brain3d.boot') || ''; } catch (e) { known = ''; }
+      APP.boot = boot;
+      APP.bootChanged = !!(boot && known && known !== boot);
+      var bootEl = document.getElementById('histBoot');
+      if (bootEl) {
+        if (!boot) bootEl.textContent = '最近 12 次 · 点击重放';
+        else if (!known) bootEl.textContent = '进程 ' + boot;
+        else if (known !== boot) bootEl.textContent = '新进程 ' + boot + ' · 历史已重置';
+        else bootEl.textContent = '进程 ' + boot;
+      }
+      try { if (boot) window.localStorage.setItem('brain3d.boot', boot); } catch (e) {}
       if (!list.length) return;
       list.sort(function (a, b) { return b.at - a.at; });
       /* 与已经收到的事件合并：同一秒同一句只算一条 */
@@ -2500,6 +2513,9 @@
       if (typeof window.__uiRedraw === 'function') window.__uiRedraw();
     }).catch(function () {});
   }
+
+  /* 调试钩子：手动触发一次「从活动流重建检索史」 */
+  window.__reloadHistory = function () { return loadHistoryFromActivity(); };
 
   function setConn(live) {
     APP.live = !!live;
@@ -3687,7 +3703,11 @@
   }
   function rhythmSVG() {
     var qs = APP.queries.slice().reverse(); /* 时间正序 */
-    if (!qs.length) return '<span class="cap">还没有检索。</span>';
+    if (!qs.length) {
+      return '<span class="cap">' + (APP.boot
+        ? '这个进程还没有检索记录。'
+        : '还没有检索。') + '</span>';
+    }
     var W = 268, H = 34, padL = 4, padR = 4, baseY = 22;
     var t0 = qs[0].at, t1 = qs[qs.length - 1].at;
     var span = Math.max(1, t1 - t0);
@@ -3773,7 +3793,7 @@
     var anchor = document.getElementById('heatNote');
     var box = document.createElement('section');
     box.className = 'hist';
-    box.innerHTML = '<div class="hist-hd"><b>检索史</b><span>最近 12 次 · 点击重放</span></div>' +
+    box.innerHTML = '<div class="hist-hd"><b>检索史</b><span id="histBoot">最近 12 次 · 点击重放</span></div>' +
       '<div class="rhythm"><div id="rhythmBox"></div></div>' +
       '<div class="scrub"><input type="range" id="histRange" min="0" max="11" step="0.02" value="0" aria-label="检索史时间轴"><span id="histPos">最近</span></div>' +
       '<ol id="histList"></ol>';
