@@ -1376,6 +1376,7 @@
   var traces = [];
 
   function spawnTrace(path, color, delay, dur, alpha, tail, width) {
+    if (APP.animGate === false) return;
     if (!path || path.length < 2) return;
     if (traces.length > 24) traces.shift();
     traces.push({ path: path, color: color, t: -(delay || 0), dur: dur || 0.8,
@@ -1978,8 +1979,10 @@
 
   /* ============================== pulses (topK) ============================== */
   var pulses = [];
+  APP.animGate = true;
   function spawnPulse(path, color, size, dur, delay) {
     if (!path || path.length < 2) return;
+    if (APP.animGate === false) return;
     if (pulses.length >= PULSE_MAX) pulses.shift();
     pulses.push({ path: path, t: -(delay || 0), dur: dur || 0.55, color: color, size: size || 0.05 });
   }
@@ -2263,20 +2266,16 @@
       var p3 = archivePoint(mid).multiplyScalar(1 + 0.26 / TUNING.ARCHIVE_R);
       _proj.copy(p3).project(camera);
       if (_proj.z > 1) { item.el.style.opacity = '0'; return; }
-      var sx = (_proj.x * 0.5 + 0.5) * w, sy = (-_proj.y * 0.5 + 0.5) * h;
-      /* 扇区被脑体挡住时，把标签沿屏幕径向推到标本外圈，别压在沟回上 */
-      var cx = w * 0.5, cy = h * 0.52;
-      var dx = sx - cx, dy = sy - cy;
-      var dmin = Math.min(w, h) * 0.42;
-      var dcur = Math.sqrt(dx * dx + dy * dy) || 1;
-      if (dcur < dmin) {
-        var k = dmin / dcur;
-        sx = cx + dx * k; sy = cy + dy * k;
-      }
-      /* 左下角是图注区，别把标签压上去 */
-      if (sx < w * 0.40 && sy > h * 0.84) { item.el.style.opacity = '0'; return; }
-      sx = clamp(sx, 10, Math.max(10, w - 60));
-      sy = clamp(sy, 10, h - 12);
+      /* 方向来自扇区中点的投影（会跟着相机转），半径固定：
+         五个标签永远落在标本外的一圈上——不遮脑体、不互相压、不撞左下角图注 */
+      var cx = w * 0.5, cy = h * 0.50;
+      var rx = w * 0.46, ry = h * 0.40;
+      var dx = (_proj.x * 0.5 + 0.5) * w - cx;
+      var dy = (-_proj.y * 0.5 + 0.5) * h - cy;
+      if (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3) { dx = 0; dy = 1; }
+      var el2 = Math.sqrt((dx / rx) * (dx / rx) + (dy / ry) * (dy / ry)) || 1;
+      var sx = clamp(cx + dx / el2, 66, Math.max(66, w - 96));
+      var sy = clamp(cy + dy / el2, 30, h - 74);
       item.el.style.opacity = '0.72';
       item.el.style.transform = 'translate(' + (sx - 26).toFixed(1) + 'px,' + (sy + 8).toFixed(1) + 'px)';
     });
@@ -2293,10 +2292,29 @@
   /* ============================== UI: read-outs ============================== */
   function toast(msg, kind) {
     var el = $('toast');
-    el.textContent = msg;
+    var now = (window.performance && performance.now) ? performance.now() : Date.now();
+    if (now - toast._at < 300 && toast._base) {
+      toast._extra += 1;
+      el.textContent = toast._base + ' · +' + toast._extra;
+    } else {
+      toast._base = msg;
+      toast._extra = 0;
+      el.textContent = msg;
+    }
+    toast._at = now;
     el.className = 'show' + (kind ? ' ' + kind : '');
     clearTimeout(toast._t);
-    toast._t = setTimeout(function () { el.className = ''; }, 2600);
+    toast._t = setTimeout(function () { el.className = ''; toast._base = ''; }, 2600);
+  }
+
+  /* 密集事件时宁可少两段动画，也不让画面被同时起飞的 engram 与 toast 糊住 */
+  var ANIM_WINDOW_MS = 500, ANIM_MAX = 6;
+  APP.anim = { t: 0, n: 0 };
+  function animAllowed() {
+    var now = (window.performance && performance.now) ? performance.now() : Date.now();
+    if (now - APP.anim.t > ANIM_WINDOW_MS) { APP.anim.t = now; APP.anim.n = 0; }
+    APP.anim.n += 1;
+    return APP.anim.n <= ANIM_MAX;
   }
 
   function setStatus(left, right, kind) {
@@ -3164,6 +3182,11 @@
 
   function ingestEvent(ev, demo) {
     if (!ev || !ev.kind) return;
+    APP.animGate = animAllowed();
+    try { ingestEventInner(ev, demo); } finally { APP.animGate = true; }
+  }
+
+  function ingestEventInner(ev, demo) {
     var prefix = demo ? '演示 · ' : '';
     var kind = ev.kind;
     if (kind === 'observe') {
@@ -3212,7 +3235,7 @@
     } else if (kind === 'forget') {
       var rec = APP.model && APP.model.byId[ev.id];
       if (rec) {
-        APP.moving.push({ rec: rec, t: 0, dur: 1.0, from: rec.pos.clone(),
+        if (APP.moving.length < 10) APP.moving.push({ rec: rec, t: 0, dur: 1.0, from: rec.pos.clone(),
           to: archivePoint(archiveAngle(rec.layer, rec.slot.u || 0.5)), fade: true });
       }
       toast(prefix + 'forget · ' + truncate(ev.title || ev.id || '', 24));

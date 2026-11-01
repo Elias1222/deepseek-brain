@@ -259,6 +259,7 @@ data: {"seq":12,"events":[{ "seq":12, "kind":"remember", "title":"…", … }]}
 
 - `since` 沿用 `/api/activity` 的序号语义；断线重连时带上最后一次的 `seq` 即可，不会重复也不会漏。
 - 无新事件时每 15 s 发一个 `: ping` 注释帧保活；客户端关闭时服务端自动退订并清掉定时器。
+- 密集写入时服务端按 40 ms 合批，一帧可带多条事件；前端对超出动画预算的部分只更新数字（500 ms / 6 段）。
 - 前端应优先用它，拿不到 `EventSource` 时退回 1 秒一次的 `/api/activity` 轮询。
 
 `GET /api/health` → `{ ok, version, dataDir, counts, backups:{count,newest}, vector:{enabled,provider,dim,indexed,warning}, warnings }`
