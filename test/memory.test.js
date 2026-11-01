@@ -443,3 +443,13 @@ test('restoring a hidden semantic fact does not steal the active slot', async ()
   assert.equal(active.length, 1, 'exactly one active fact in the slot');
   assert.equal(active[0].object, '产品设计师');
 });
+
+test('an unbound pronoun is reported but never written as a fact', async () => {
+  const memory = await makeMemory().init();
+  const out = memory.observe('default', '她是我的老板，一定要记住这件事');
+  assert.equal(out.facts.length, 0);
+  assert.equal(out.unbound.length, 1);
+  assert.equal(out.unbound[0].pronoun, '她');
+  assert.equal(out.unbound[0].relation, '身份');
+  assert.equal(memory.semantic.active().length, 0);
+});

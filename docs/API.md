@@ -165,8 +165,13 @@ POST /api/observe
 // → { "ok": true, "kept": { "id": "ep_…", "layer": "episodic", "importance": 4 } | null,
 //      "topic": "产品设计师", "shelved": [], "dropped": 0,
 //      "entities": { "people": [], "places": ["北京"], "emotions": [] },
-//      "facts": [ { "subject": "用户", "relation": "职业", "object": "产品设计师", "importance": 4 } ] }
+//      "facts": [ { "subject": "用户", "relation": "职业", "object": "产品设计师", "importance": 4 } ],
+//      "unbound": [] }   // 代词找不到同一句里的先行词时列在这里，且不写库
 ```
+
+Extraction runs **before** the episodic gate: whether a sentence deserves to be an event, and whether it
+carries a fact, are separate decisions. A short sentence that never becomes a memory can still report
+`unbound` pronouns.
 
 What it does: (1) pushes the utterance into the sensory buffer as an entity-bearing trace, (2) pushes the
 detected topic onto the working-memory stack, (3) writes an episodic record only if the attention gate

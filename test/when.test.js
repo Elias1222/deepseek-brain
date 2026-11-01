@@ -45,3 +45,15 @@ test('no time phrase means null, never "now"', () => {
   assert.equal(parseWhen('我喜欢黑咖啡', AT), null);
   assert.equal(parseWhen('', AT), null);
 });
+
+test('relative quantities are resolved against the given instant', () => {
+  assert.equal(iso('三天后交方案'), '2026-11-04 00:00');
+  assert.equal(iso('两周后回访'), '2026-11-15 00:00');
+  assert.equal(iso('两个月后搬家'), '2027-01-01 00:00');
+  assert.equal(iso('两小时后开会'), '2026-11-01 12:00');
+  assert.equal(iso('下下周三评审'), '2026-11-11 00:00');
+});
+
+test('a relative day still accepts a clock time', () => {
+  assert.equal(iso('三天后下午两点复核'), '2026-11-04 14:00');
+});
