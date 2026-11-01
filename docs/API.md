@@ -215,6 +215,22 @@ PATCH /api/memories/ep_abc
 // 找不到 → 404 { "ok": false, "error": { "code": "not-found" } }
 ```
 
+`POST /api/archive/restore` — 批量取回，body `{ "ids": ["ep_...", "pro_..."] }`。
+空数组 → 400 `missing-ids`；缺失的 id 不算错误，集中在 `missing` 里回报。
+
+```jsonc
+// → { "ok": true,
+//     "restored": [ { "id": "ep_...", "layer": "episodic", "title": "季度评审改到周四上午" } ],
+//     "missing":  [ "ep_gone" ] }
+```
+
+`POST /api/archive/:id/undo` — 撤销刚才的取回：重新写回 `archive.json`（`reason: "undo"`）。
+语义事实撤销后回到 `status: "archived"`，不碰同槽位的生效值；找不到 → 404 `not-found`。
+
+```jsonc
+// → { "ok": true, "layer": "episodic", "title": "季度评审改到周四上午" }
+```
+
 `POST /api/import` — 把另一台设备导出的档案（`/api/export.json` 的同一形状）并进来；只做加法，
 同 id / 同三元组 / 同规则 / 同事件原文的一律跳过，不覆盖本地。
 

@@ -228,6 +228,16 @@ curl -s 'http://127.0.0.1:7799/deepseek-brain/api/archive?q=评审' | jq '{total
 curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/archive/ep_abc123/restore'
 # → {"ok":true,"layer":"episodic","title":"季度评审改到周四上午"}  ← 它又参与检索与衰减了
 
+# 5d) 批量取回，点错了就撤销（面板上就是「取回选中」与「撤销取回」两个按钮）
+curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/archive/restore' \
+  -H 'content-type: application/json' -d '{"ids":["ep_a","ep_b","ep_gone"]}'
+# → {"ok":true,"restored":[{…},{…}],"missing":["ep_gone"]}   ← 缺失的 id 不算失败
+
+curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/archive/ep_a/undo'
+# → {"ok":true,"layer":"episodic","title":"…"}  它回到 archive.json，reason=undo
+
+# 插件里对应的批量写法：brain_archive { "ids": ["ep_a", "ep_b"] }
+
 # 6) 换一台机器：把另一份 export 并进来，只做加法，重复的跳过
 curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/import' \
   -H 'content-type: application/json' --data-binary @other-brain-export.json

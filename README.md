@@ -159,7 +159,7 @@ dsh plugin add ./deepseek-brain
 | `brain_conflicts` | 列出被修正的事实与当前生效值 | — |
 | `brain_restore` | 把某条 `[已修正]` 的旧值放回生效位 | `id`(必填) |
 | `brain_prune_conflicts` | 每个槽位只留最近 N 条旧值，其余软归档到 `archive.json`（先给预演） | `keep` `subject` `relation` `dryRun` |
-| `brain_archive` | 查归档区（遗忘 / 清理 / 手动归档）并取回其中一条 | `query` `layer` `limit` `id` |
+| `brain_archive` | 查归档区（遗忘 / 清理 / 手动归档）并取回，单条或批量 | `query` `layer` `limit` `id` `ids` |
 | `brain_import` | 并入另一份 export（只做加法，冲突跳过） | `path` 或 `json` |
 | `brain_forget` | 软删除到 `archive.json` | `id` |
 | `brain_sleep` | 衰减清理 + 睡眠巩固 | `minAgeHours` |
@@ -269,7 +269,7 @@ ASCII 脑图（见第 3 节）+ 健康面板：总记忆数、本周新增、遗
 `brain_dashboard` → 返回 `…/deepseek-brain/dashboard.html`。它不是「数据看板」，是一台**观测仪**：骨白与墨色、宋体标题、等宽数字、压印按钮，没有任何圆角渐变卡片。四页（hash 路由，键盘 `1–4`）：
 
 - **概览 VITALS**：脑区度数表（五层的条数/占比/平均强度）+ 14 天生命体征示波器（新增/遗忘/巩固/巩固次数四条迹线）+ 读数板（λ、半衰期、遗忘阈值、Pinned 条数、数据目录、备份数、向量索引、当前会话）+ 检索台（真正 `POST /api/recall`，把分数四分量列出来）。
-- **编年史 CHRONICLE**：右上角「归档区」按钮打开归档抽屉——遗忘、清理、手动归档的记忆都在里面，可按关键词与层级筛，点「取回」就回到原来的层继续参与检索与衰减。等宽表格虚拟滚动，每条给出「强度预报」——`还剩 31.2 日 · 强度 0.50` 或 `免疫 · Imp 5`，直接读服务端 `forgetInDays`，不在前端重算公式。点任意一行打开**版本链抽屉**：`v1 … vN` 分开标注当前版与 `[已修正]`，点开看那一版当时的字段；`恢复此版本` 对情景/程序走 `PATCH api/memories/:id`（历史另存一版，不覆盖），对语义事实走 `POST api/conflicts/:id/restore`。
+- **编年史 CHRONICLE**：右上角「归档区」按钮打开归档抽屉——遗忘、清理、手动归档的记忆都在里面，可按关键词与层级筛，点「取回」就回到原来的层继续参与检索与衰减；勾选多条可以「取回选中 (n)」，取回后 8 秒内还能「撤销取回」把它送回归档区。等宽表格虚拟滚动，每条给出「强度预报」——`还剩 31.2 日 · 强度 0.50` 或 `免疫 · Imp 5`，直接读服务端 `forgetInDays`，不在前端重算公式。点任意一行打开**版本链抽屉**：`v1 … vN` 分开标注当前版与 `[已修正]`，点开看那一版当时的字段；`恢复此版本` 对情景/程序走 `PATCH api/memories/:id`（历史另存一版，不覆盖），对语义事实走 `POST api/conflicts/:id/restore`。
 - **纤维追踪 TRACTOGRAPHY**：力导向的语义纤维束，主体/客体分级着色，`[已修正]` 用虚线束；右侧实体档案按度数排序，点实体列出它的全部事实；再下方是**废弃事实面板**——按「主体 → 关系」聚合被修正的旧值，每个槽位保留最近 1 条，多出来的点一下就软归档到 `archive.json`（可先看「可归档 K 条」再动手）。
 - **衰减实验 DECAY LAB**：左侧时间转盘（±30 天）真的会 `GET /api/state?at=`，右侧强度曲线族按当前 λ 画出每条记忆的衰减轨迹与阈值穿越点，右下是遗忘预报清单（按 `forgetInDays` 升序）。
 
@@ -287,7 +287,9 @@ PATCH|POST /api/memories/:id            # 就地修订（importance / 字段 / �
 GET  /api/memories/:id                 # 版本链 v1…当前
 POST /api/conflicts/:id/restore         # 把 [已修正] 的旧值放回生效位
 POST /api/conflicts/prune               # 每槽留 N 条旧值，其余软归档（keep / dryRun）
-POST /api/archive/:id/restore           # 从归档区取回，回到原来的层
+POST /api/archive/:id/restore           # 从归档区取回一条，回到原来的层
+POST /api/archive/restore                # 批量取回 { ids: [...] }，缺失的 id 进 missing
+POST /api/archive/:id/undo               # 撤销刚才的取回，重新归档（reason: undo）
 POST /api/import                        # 并入另一份 export，只做加法
 ```
 

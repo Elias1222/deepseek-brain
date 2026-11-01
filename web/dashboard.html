@@ -307,13 +307,22 @@ input[type="text"]:focus{border-color:var(--celadon);background:#0d1012}
 .arc-chip{padding:3px 7px;font:10px/1.2 var(--mono);letter-spacing:.06em;color:var(--paper-3);
   background:transparent;border:1px solid var(--line);border-radius:0;cursor:pointer}
 .arc-chip.on{color:var(--ink);background:var(--paper);border-color:var(--paper)}
-.arc-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:start;
+.arc-row{display:grid;grid-template-columns:16px 64px minmax(0,1fr) 48px;gap:8px;align-items:center;padding-right:6px;
   padding:7px 2px;border-bottom:1px solid rgba(230,224,210,.06)}
 .arc-row .when{font:9px/1.5 var(--mono);color:var(--paper-4);white-space:nowrap}
 .arc-row .what b{display:block;font-size:11px;font-weight:500;color:var(--paper);line-height:1.45}
 .arc-row .what i{font-style:normal;font:9px/1.5 var(--mono);color:var(--paper-4)}
-.arc-row .btn{flex:none;padding:3px 7px;font-size:9px}
+.arc-row .btn{flex:none;padding:3px 6px;font-size:9px;white-space:nowrap}
 .arc-empty{padding:10px 2px;font:10px/1.7 var(--mono);color:var(--paper-4)}
+
+/* 归档区的多选与撤销 */
+.arc-sel{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0 8px}
+.arc-sel .pick,.arc-row .pick{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim);
+  font-family:var(--mono);letter-spacing:.06em;cursor:pointer}
+.arc-sel .pick input,.arc-row .pick input{width:12px;height:12px;accent-color:#c8482e;cursor:pointer}
+.arc-row.on{background:rgba(200,72,46,.08);box-shadow:inset 2px 0 0 #c8482e}
+.arc-row .pick{flex:0 0 16px}
+.rev-foot .btn[hidden]{display:none!important}
 
 /* ── deprecated facts ────────────────────────────────────────── */
 .depr{flex:0 0 auto;max-height:42%;display:flex;flex-direction:column;min-height:132px;
@@ -666,10 +675,15 @@ input[type="text"]:focus{border-color:var(--celadon);background:#0d1012}
             <button class="arc-chip" data-layer="semantic" type="button">语义</button>
             <button class="arc-chip" data-layer="procedural" type="button">程序</button>
           </div>
+          <div class="arc-sel">
+            <label class="pick"><input type="checkbox" id="arcAll"> 全选</label>
+            <button class="btn" id="arcRestorePicked" type="button" disabled>取回选中</button>
+          </div>
           <div id="arcList"><p class="arc-empty">读取中…</p></div>
         </div>
         <div class="rev-foot">
           <span class="rev-st" id="arcSt">—</span>
+          <button class="btn btn-ghost" id="arcUndo" type="button" hidden>撤销取回</button>
         </div>
       </aside>
       <aside class="revdrawer" id="revDrawer" hidden aria-label="记忆修订史" aria-hidden="true">
@@ -3158,7 +3172,7 @@ function revOpen(id, layer, title){
 }
 
 /* ── archive drawer ─────────────────────────────────────────── */
-var ARC = { q: '', layer: '', items: [], total: 0, busy: false };
+var ARC = { q: '', layer: '', items: [], total: 0, busy: false, picked: [], undo: [], undoTimer: 0 };
 
 function arcIsDemo(){ return !!(S && S.mode === 'demo'); }
 
@@ -3181,18 +3195,72 @@ function arcSetStatus(text, kind){
   if(!el) return;
   el.className = 'rev-st' + (kind ? ' ' + kind : '');
   el.textContent = text;
+  var undo = $('arcUndo');
+  if(!undo) return;
+  if(ARC.undo && ARC.undo.length){
+    undo.hidden = false;
+    undo.textContent = ARC.undo.length > 1 ? ('撤销取回 (' + ARC.undo.length + ')') : '撤销取回';
+  }else{
+    undo.hidden = true;
+  }
+}
+
+/* 取回后留一个 8 秒的撤销窗口：把刚放进层的记忆再送回归档 */
+function arcArmUndo(ids){
+  ARC.undo = (ids || []).slice();
+  arcSetStatus.applied = true;
+  if(ARC.undoTimer) clearTimeout(ARC.undoTimer);
+  ARC.undoTimer = setTimeout(function(){ ARC.undo = []; arcSetStatus($('arcSt') ? $('arcSt').textContent : '', ''); }, 8000);
+  arcSetStatus($('arcSt') ? $('arcSt').textContent : '', 'ok');
+}
+
+function arcUndo(){
+  if(!ARC.undo || !ARC.undo.length || ARC.busy) return;
+  var ids = ARC.undo.slice();
+  ARC.undo = [];
+  ARC.busy = true;
+  arcSetStatus('撤销中…', '');
+  Promise.all(ids.map(function(id){
+    return api('api/archive/' + encodeURIComponent(id) + '/undo', { method: 'POST' }).catch(function(){ return null; });
+  })).then(function(){
+    ARC.busy = false;
+    arcSetStatus('已撤销 ' + ids.length + ' 条 · 回到归档区', 'ok');
+    arcLoad();
+    if(typeof refreshState === 'function') refreshState();
+    if(typeof renderDeprecated === 'function') renderDeprecated();
+  });
 }
 
 function arcRowsHtml(items){
   return items.map(function(it){
     var when = it.archivedAt ? String(it.archivedAt).slice(5, 16).replace('T', ' ') : '—';
-    var reason = it.reason === 'superseded' ? '被新说法取代' : it.reason === 'decay' ? '衰减遗忘' : '手动归档';
-    return '<div class="arc-row">' +
+    var reason = it.reason === 'superseded' ? '被新说法取代'
+      : it.reason === 'decay' ? '衰减遗忘'
+      : it.reason === 'undo' ? '撤销取回' : '手动归档';
+    var on = ARC.picked.indexOf(it.id) >= 0;
+    return '<div class="arc-row' + (on ? ' on' : '') + '" data-row="' + esc(it.id) + '">' +
+      '<label class="pick"><input type="checkbox" class="arc-ck" data-ck="' + esc(it.id) + '"' + (on ? ' checked' : '') + ' aria-label="选中 ' + esc(trunc(it.title, 24)) + '"></label>' +
       '<span class="when">' + esc(when) + '</span>' +
       '<span class="what"><b>' + esc(trunc(it.title, 64)) + '</b><i>' + esc(layerLabel(it.layer)) + ' · ' + esc(reason) + ' · ' + esc(it.id) + '</i></span>' +
       '<button class="btn btn-ghost" type="button" data-arc="' + esc(it.id) + '">取回</button>' +
       '</div>';
   }).join('');
+}
+
+function arcPickedCount(){ return ARC.picked.length; }
+
+function arcSyncPicked(){
+  var btn = $('arcRestorePicked');
+  if(!btn) return;
+  var n = arcPickedCount();
+  btn.disabled = n === 0 || ARC.busy;
+  btn.textContent = n ? '取回选中 (' + n + ')' : '取回选中';
+  var all = $('arcAll');
+  if(all){
+    var rows = ARC.items.filter(function(it){ return ARC.picked.indexOf(it.id) >= 0; });
+    all.checked = ARC.items.length > 0 && rows.length === ARC.items.length;
+    all.disabled = ARC.items.length === 0;
+  }
 }
 
 function arcLoad(){
@@ -3203,6 +3271,8 @@ function arcLoad(){
     arcSetStatus('离线演示 · 只读', '');
     return;
   }
+  var note = typeof arcLoad.note === 'string' && arcLoad.note ? arcLoad.note : '';
+  arcLoad.note = '';
   arcSetStatus('读取归档区…', '');
   var qs = 'api/archive?limit=60';
   if(ARC.q) qs += '&q=' + encodeURIComponent(ARC.q);
@@ -3213,8 +3283,9 @@ function arcLoad(){
     body.innerHTML = ARC.total
       ? arcRowsHtml(ARC.items)
       : '<p class="arc-empty">归档区是空的：没有遗忘、没有清理，也没有被手动归档的记忆。</p>';
-    arcSetStatus('共 ' + ARC.total + ' 条 · 情景 ' + data.byLayer.episodic +
-      ' / 语义 ' + data.byLayer.semantic + ' / 程序 ' + data.byLayer.procedural, '');
+    arcSyncPicked && arcSyncPicked();
+    arcSetStatus(note || ('共 ' + ARC.total + ' 条 · 情景 ' + data.byLayer.episodic +
+      ' / 语义 ' + data.byLayer.semantic + ' / 程序 ' + data.byLayer.procedural), note ? 'ok' : '');
   }).catch(function(err){
     body.innerHTML = '<p class="arc-empty">读取失败：' + esc(err && err.message ? err.message : 'unknown') + '</p>';
     arcSetStatus('读取失败', 'bad');
@@ -3227,13 +3298,37 @@ function arcRestore(id){
   arcSetStatus('取回中…', '');
   api('api/archive/' + encodeURIComponent(id) + '/restore', { method: 'POST' }).then(function(res){
     ARC.busy = false;
-    arcSetStatus('已取回 → ' + layerLabel(res.layer) + ' · ' + trunc(res.title || id, 40), 'ok');
+    ARC.picked = ARC.picked.filter(function(x){ return x !== id; });
+    arcLoad.note = '已取回 → ' + layerLabel(res.layer) + ' · ' + trunc(res.title || id, 40);
     arcLoad();
+    arcArmUndo([id]);
     if(typeof refreshState === 'function') refreshState();
     if(typeof renderDeprecated === 'function') renderDeprecated();
   }).catch(function(err){
     ARC.busy = false;
     arcSetStatus('取回失败 · ' + (err && err.message ? err.message : 'unknown'), 'bad');
+  });
+}
+
+function arcRestorePicked(){
+  if(ARC.busy || !ARC.picked.length) return;
+  var ids = ARC.picked.slice();
+  ARC.busy = true;
+  arcSetStatus('取回 ' + ids.length + ' 条…', '');
+  api('api/archive/restore', { method: 'POST', body: { ids: ids } }).then(function(res){
+    ARC.busy = false;
+    ARC.picked = [];
+    ARC.items = [];
+    var moved = (res.restored || []).map(function(x){ return x.id; });
+    var miss = (res.missing || []).length;
+    arcLoad.note = '已取回 ' + moved.length + ' 条' + (miss ? ' · ' + miss + ' 条已不存在' : '');
+    arcLoad();
+    if(moved.length) arcArmUndo(moved);
+    if(typeof refreshState === 'function') refreshState();
+    if(typeof renderDeprecated === 'function') renderDeprecated();
+  }).catch(function(err){
+    ARC.busy = false;
+    arcSetStatus('批量取回失败 · ' + (err && err.message ? err.message : 'unknown'), 'bad');
   });
 }
 
@@ -3264,8 +3359,43 @@ function wireArchive(){
 
   $('arcList').addEventListener('click', function(ev){
     var b = ev.target.closest('[data-arc]');
-    if(b) arcRestore(b.getAttribute('data-arc'));
+    if(b){ arcRestore(b.getAttribute('data-arc')); return; }
+    var row = ev.target.closest('[data-row]');
+    if(row && !ev.target.closest('input')){
+      var id = row.getAttribute('data-row');
+      var at = ARC.picked.indexOf(id);
+      if(at >= 0) ARC.picked.splice(at, 1); else ARC.picked.push(id);
+      row.classList.toggle('on', at < 0);
+      var ck = row.querySelector('input.arc-ck');
+      if(ck) ck.checked = at < 0;
+      arcSyncPicked();
+    }
   });
+
+  $('arcList').addEventListener('change', function(ev){
+    var ck = ev.target.closest('input.arc-ck');
+    if(!ck) return;
+    var id = ck.getAttribute('data-ck');
+    var at = ARC.picked.indexOf(id);
+    if(ck.checked && at < 0) ARC.picked.push(id);
+    if(!ck.checked && at >= 0) ARC.picked.splice(at, 1);
+    var row = ck.closest('[data-row]');
+    if(row) row.classList.toggle('on', ck.checked);
+    arcSyncPicked();
+  });
+
+  if($('arcAll')){
+    $('arcAll').addEventListener('change', function(ev){
+      ARC.picked = ev.target.checked ? ARC.items.map(function(it){ return it.id; }) : [];
+      arcLoad();
+    });
+  }
+  if($('arcRestorePicked')){
+    $('arcRestorePicked').addEventListener('click', arcRestorePicked);
+  }
+  if($('arcUndo')){
+    $('arcUndo').addEventListener('click', arcUndo);
+  }
 
   document.addEventListener('keydown', function(ev){
     if(ev.key === 'Escape' && !$('arcDrawer').hidden) arcClose();
