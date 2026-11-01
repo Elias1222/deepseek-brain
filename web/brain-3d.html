@@ -2819,7 +2819,8 @@
       if (whenRow) metaRows.push(whenRow);
       var orig = '<div class="e-orig"><p class="q">' + escapeHTML(String(r.event || rec.title)) +
         (r.place ? '<span class="m"> · ' + escapeHTML(String(r.place)) + '</span>' : '') + '</p>' +
-        (r.detail ? '<p class="note">' + escapeHTML(truncate(String(r.detail), 260)) + '</p>' : '') +
+        (r.detail && String(r.detail) !== String(r.event || rec.title)
+          ? '<p class="note">' + escapeHTML(truncate(String(r.detail), 260)) + '</p>' : '') +
         meta2(metaRows) + '</div>';
       return orig;
     }
