@@ -2423,6 +2423,8 @@
         '<div class="e-actions">' +
           '<button class="mini" data-act="focus">飞入</button>' +
           '<button class="mini" data-act="trace">检索轨迹</button>' +
+          '<button class="mini" data-act="impdown" title="降低重要度（会更快衰减）">重要度 −</button>' +
+          '<button class="mini" data-act="impup" title="提高重要度（重要度 ≥4 永不遗忘）">重要度 +</button>' +
           '<button class="mini warn" data-act="forget">遗忘此条</button>' +
         '</div>' +
         (APP.report && APP.report.forId === rec.id ? '<div class="report">' + APP.report.html + '</div>' : '') +
@@ -2433,6 +2435,8 @@
         if (act === 'focus') focusOn(rec);
         else if (act === 'forget') doForget();
         else if (act === 'trace') traceRecall(rec);
+        else if (act === 'impup') doEditImportance(rec, +1);
+        else if (act === 'impdown') doEditImportance(rec, -1);
       });
     });
     $('forgetBtn').disabled = false;
@@ -2557,8 +2561,8 @@
     return fetch(path, { headers: { accept: 'application/json' }, cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); });
   }
-  function apiPost(path, body) {
-    return fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' },
+  function apiPost(path, body, method) {
+    return fetch(path, { method: method || 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body || {}) }).then(function (r) {
       return r.json().then(function (j) {
         if (!r.ok) { var e = new Error((j && (j.code || j.error)) || ('http ' + r.status)); e.code = j && j.code; throw e; }
@@ -2809,6 +2813,36 @@
     });
     raw.stats = raw.stats || {};
     raw.stats.forgotten = num(raw.stats.forgotten, 0) + 1;
+  }
+
+  /* 就地改重要度：服务端只改这一条，不新建、不删除；回包带 changed 字段 */
+  function doEditImportance(rec, delta) {
+    if (!rec) return;
+    var next = clamp(num(rec.importance, 3) + delta, 1, 5);
+    if (next === rec.importance) {
+      setStatus('PATCH api/memories/:id · ' + escapeHTML(truncate(rec.id, 18)) + ' · 不变',
+        'importance 已在边界 ' + next, 'warn');
+      return;
+    }
+    var done = function (ok, note) {
+      setStatus('PATCH api/memories/:id · importance ' + rec.importance + ' → ' + next,
+        ok ? ('已修订 · ' + (next >= num(APP.pinnedImportance, 4) ? '从此永不遗忘' : '仍会衰减')) : note,
+        ok ? '' : 'warn');
+      toast(ok ? ('重要度已改为 ' + next) : '修订失败');
+      if (ok) setTimeout(function () { if (APP.live) refreshState({ quiet: true }); else demoEditImportance(rec.id, next); }, 120);
+    };
+    if (!APP.live) { demoEditImportance(rec.id, next); done(true); return; }
+    apiPost('api/memories/' + encodeURIComponent(rec.id), { importance: next }, 'PATCH')
+      .then(function (res) { done(res && res.ok !== false, '拒绝'); })
+      .catch(function (err) { done(false, '失败 · ' + String((err && err.code) || 'network')); });
+  }
+
+  function demoEditImportance(id, importance) {
+    if (!APP.demoState) return;
+    [].concat(APP.demoState.episodic || [], APP.demoState.semantic || [], APP.demoState.procedural || []).forEach(function (it) {
+      if (it.id === id) it.importance = importance;
+    });
+    applyDemoTime();
   }
 
   function doForget() {

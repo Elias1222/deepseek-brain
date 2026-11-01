@@ -155,6 +155,105 @@ test('invalid bodies produce structured errors, not crashes', async () => {
   });
 });
 
+test('PATCH /api/memories/:id edits a memory and reports the changed fields', async () => {
+  await withServer(async ({ origin, memory }) => {
+    const created = await get(origin, '/api/remember', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ layer: 'episodic', event: '起草一份排期表', importance: 2 }),
+    });
+    const id = created.json.item.id;
+    const patched = await get(origin, `/api/memories/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ importance: 5, place: '望京' }),
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.json.ok, true);
+    assert.deepEqual(patched.json.changed.sort(), ['importance', 'place']);
+    assert.equal(patched.json.item.importance, 5);
+    assert.equal(patched.json.item.id, id);
+    const stored = memory.episodic.find((it) => it.id === id);
+    assert.equal(stored.place, '望京');
+
+    const missing = await get(origin, '/api/memories/nope', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ importance: 3 }),
+    });
+    assert.equal(missing.status, 404);
+    assert.equal(missing.json.error.code, 'not-found');
+  });
+});
+
+test('conflict endpoints list a correction and roll it back', async () => {
+  await withServer(async ({ origin }) => {
+    const first = await get(origin, '/api/remember', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ layer: 'semantic', subject: '用户', relation: '职业', object: '设计师', importance: 4 }),
+    });
+    await get(origin, '/api/remember', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ layer: 'semantic', subject: '用户', relation: '职业', object: '产品设计师', importance: 5 }),
+    });
+
+    const list = await get(origin, '/api/conflicts');
+    assert.equal(list.status, 200);
+    /* 演示数据里也可能已有被修正的事实，所以按 id 定位自己造的那一条 */
+    const entry = list.json.items.find((it) => it.id === first.json.item.id);
+    assert.ok(entry, 'the corrected fact shows up in the conflict list');
+    assert.equal(entry.object, '设计师');
+    assert.equal(entry.current.object, '产品设计师');
+
+    const restored = await get(origin, `/api/conflicts/${first.json.item.id}/restore`, { method: 'POST' });
+    assert.equal(restored.status, 200);
+    assert.equal(restored.json.restored.object, '设计师');
+    assert.equal(restored.json.replaced.object, '产品设计师');
+
+    const after = await get(origin, '/api/conflicts');
+    /* 回滚之后，进「已修正」的是新的那条，而它现在指向旧值 */
+    const flipped = after.json.items.find((it) => it.object === '产品设计师' && it.subject === '用户' && it.relation === '职业');
+    assert.ok(flipped, 'the newer value is kept as a recorded revision');
+    assert.equal(flipped.current.object, '设计师');
+
+    const missing = await get(origin, '/api/conflicts/nope/restore', { method: 'POST' });
+    assert.equal(missing.status, 404);
+  });
+});
+
+test('POST /api/import merges an archive without duplicating what is already there', async () => {
+  await withServer(async ({ origin, memory }) => {
+    const exported = memory.exportJson('default');
+    const before = memory.episodic.length;
+    const again = await get(origin, '/api/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(exported),
+    });
+    assert.equal(again.status, 200);
+    assert.equal(again.json.episodic, 0, 'importing your own export changes nothing');
+    assert.equal(memory.episodic.length, before);
+
+    const incoming = {
+      episodic: { items: [{ event: '来自另一台机器的一次散步', importance: 3, place: '奥森公园' }] },
+      semantic: { items: [{ subject: '铃', relation: '身份', object: '代理人' }] },
+      procedural: { items: [{ rule: '先给结论再解释' }] },
+    };
+    const merged = await get(origin, '/api/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(incoming),
+    });
+    assert.equal(merged.json.episodic, 1);
+    assert.equal(merged.json.semantic, 1);
+    assert.equal(merged.json.procedural, 1);
+    assert.equal(memory.episodic.length, before + 1);
+    assert.ok(memory.episodic.at(-1).tags.includes('imported'));
+  });
+});
+
 test('sleep and decay endpoints report their work', async () => {
   await withServer(async ({ origin }) => {
     const slept = await get(origin, '/api/sleep', { method: 'POST' });

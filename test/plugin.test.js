@@ -77,7 +77,19 @@ test('apply registers seven tools with DSH-supported schemas', async () => {
     assert.ok(fake.listeners.has('session/event'));
     assert.ok(fake.injections.some((deps) => deps.includes('webServer')));
 
-    const expected = ['brain_remember', 'brain_recall', 'brain_visualize', 'brain_forget', 'brain_sleep', 'brain_snapshot', 'brain_dashboard'];
+    const expected = [
+      'brain_remember',
+      'brain_recall',
+      'brain_visualize',
+      'brain_update',
+      'brain_forget',
+      'brain_conflicts',
+      'brain_restore',
+      'brain_import',
+      'brain_sleep',
+      'brain_snapshot',
+      'brain_dashboard',
+    ];
     assert.deepEqual([...fake.tools.keys()].sort(), [...expected].sort());
     for (const definition of fake.tools.values()) {
       assert.ok(definition.description.length > 20, `${definition.name} needs a model-facing description`);

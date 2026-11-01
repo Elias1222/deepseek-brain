@@ -114,14 +114,16 @@ The brain's electrophysiology. In-memory ring buffer (default 240 events), monot
 | kind | payload | meaning on screen |
 |---|---|---|
 | `observe` | `sessionId, topic, text, entities{people,places,emotions}, kept{id,layer,importance}\|null, shelved[], dropped, focus` | input strikes the sensory strip, then moves to PFC |
-| `recall` | `sessionId, query, hits[{id,layer,score}], took` | activation sweeps from the sensory strip through the PFC to the targets |
+| `recall` | `sessionId, query, hits[{id,layer,score,title,strength,parts}], took` | activation sweeps from the sensory strip through the PFC to the targets |
 | `remember` | `sessionId, layer, id, importance, title` | a new engram condenses in its region |
-| `correct` | `sessionId, layer, id, replacedBy, title` | the old engram splits off as a ghost, `[已修正]` |
+| `edit` | `sessionId, layer, id, title, fields[]` | the engram re-condenses: its spines / size change in place |
+| `correct` | `sessionId, layer, id, replacedBy, title`（回滚时 `restored:true, replaced`） | the old engram splits off as a ghost, `[已修正]` |
 | `forget` | `sessionId, layer, id, title` | the engram dissolves toward the archive ring |
 | `consolidate` | `migrated, compressed, pruned, digests, before, after` | engrams migrate hippocampus → temporal cortex during the night |
 | `decay` | `sessionId, count, ids[]` | weak engrams fade out in sequence |
+| `import` | `sessionId, episodic, semantic, procedural, skipped` | a batch of engrams arrives from another brain (`imported` tag) |
 
-## 4. Write / forget / consolidate
+## 4. Write / edit / forget / consolidate
 
 ```jsonc
 POST /api/remember
@@ -130,6 +132,37 @@ POST /api/remember
 { "layer": "semantic", "subject": "用户", "relation": "职业", "object": "产品设计师", "importance": 4 }
 { "layer": "procedural", "rule": "回答前先给结论", "importance": 3 }
 // → { "ok": true, "item": { …created record… }, "text": "已写入情景记忆：…", "corrected": [] }
+```
+
+`PATCH /api/memories/:id`（也接受 POST）— 就地修订一条记忆，不新建也不删除：
+
+```jsonc
+PATCH /api/memories/ep_abc
+{ "importance": 5, "place": "三里屯", "detail": "改到周五", "event": "…", "emotion": "…", "participants": ["…"] }
+// → { "ok": true, "layer": "episodic", "item": { … }, "changed": ["importance","place","detail"], "corrected": [] }
+```
+
+- `importance` 会被夹到 1–5；`importance ≥ 4` 的条目立刻进入「永不遗忘」。
+- 语义三元组改 `object` 时**不会就地覆盖**：新值走一次冲突检测，旧值变成 `status:"corrected"`，响应里 `corrected` 列出被顶替的那条。
+- 404 `not-found`；没有任何可改字段时 `changed: []`。
+
+`GET /api/conflicts` — 所有被修正过的事实与它们的当前值：
+
+```jsonc
+{ "ok": true, "total": 1, "items": [
+  { "id": "sem_old", "subject": "用户", "relation": "职业", "object": "设计师",
+    "correctedAt": "2026-10-31T…", "current": { "id": "sem_new", "object": "产品设计师", "ts": "…", "importance": 5 } } ] }
+```
+
+`POST /api/conflicts/:id/restore` — 回滚：旧值重新生效，当前值转为 `[已修正]`，两条都留着。
+→ `{ "ok": true, "restored": { "id", "subject", "relation", "object" }, "replaced": { "id", "object" } | null }`
+
+`POST /api/import` — 把另一台设备导出的档案（`/api/export.json` 的同一形状）并进来；只做加法，
+同 id / 同三元组 / 同规则 / 同事件原文的一律跳过，不覆盖本地。
+
+```jsonc
+{ "episodic": { "items": [ … ] }, "semantic": { "items": [ … ] }, "procedural": { "items": [ … ] } }
+// → { "ok": true, "episodic": 1, "semantic": 1, "procedural": 0, "skipped": 3, "total": 2 }
 ```
 
 `POST /api/forget` — `{ "id": "ep_..." }` → `{ "ok": true, "archived": "ep_...", "layer": "episodic" }`;

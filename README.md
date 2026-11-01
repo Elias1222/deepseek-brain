@@ -141,7 +141,7 @@ dsh plugin add ./deepseek-brain
 └──────────────────────────────────────────────────────────┘
 ```
 
-另有 `brain_sleep`（立即巩固）、`brain_forget`（软删除到 archive）、`brain_snapshot`（Markdown/JSON 档案）、`brain_dashboard`（启动仪表盘并回传 URL）。
+另有 `brain_sleep`（立即巩固）、`brain_forget`（软删除到 archive）、`brain_update`（就地修订，不新建不删除）、`brain_conflicts`（列出 `[已修正]` 的事实及当前值）、`brain_restore`（把旧值放回生效位）、`brain_import`（并入另一台设备的档案，只做加法）、`brain_snapshot`（Markdown/JSON 档案）、`brain_dashboard`（启动仪表盘并回传 URL）。
 
 同样的三件事不经过对话也能做——`curl` / `Invoke-RestMethod` / Node 三种入口的完整命令见 [`docs/EXAMPLES.md`](docs/EXAMPLES.md)，HTTP 契约见 [`docs/API.md`](docs/API.md)。
 
@@ -154,6 +154,10 @@ dsh plugin add ./deepseek-brain
 | `brain_remember` | 写入五层中的一层 | `layer`(必填) `event` `participants` `place` `emotion` `detail` `importance` `subject` `relation` `object` `rule` `ts` |
 | `brain_recall` | 检索 top-K，返回分数拆解 | `query`(必填) `topK` `layers` |
 | `brain_visualize` | ASCII 脑图 + 健康面板 | — |
+| `brain_update` | 就地修订一条记忆（情景字段 / 语义 object / 程序 rule），保留历史 | `id`(必填) `importance` `event` `detail` `place` `emotion` `object` `rule` |
+| `brain_conflicts` | 列出被修正的事实与当前生效值 | — |
+| `brain_restore` | 把某条 `[已修正]` 的旧值放回生效位 | `id`(必填) |
+| `brain_import` | 并入另一份 export（只做加法，冲突跳过） | `path` 或 `json` |
 | `brain_forget` | 软删除到 `archive.json` | `id` |
 | `brain_sleep` | 衰减清理 + 睡眠巩固 | `minAgeHours` |
 | `brain_snapshot` | 导出 Markdown / JSON 档案 | `format` |
@@ -272,9 +276,12 @@ API 挂在 `/deepseek-brain/api/*`，契约见 [`docs/API.md`](docs/API.md)：
 
 ```
 GET  /api/state?at=   GET /api/activity?since=   GET /api/health
-GET  /api/export.json GET /api/snapshot.md
+GET  /api/export.json GET /api/snapshot.md       GET /api/conflicts
 POST /api/remember    POST /api/forget   POST /api/sleep   POST /api/decay
 POST /api/recall      POST /api/working/push
+PATCH|POST /api/memories/:id            # 就地修订（importance / 字段 / 语义 object）
+POST /api/conflicts/:id/restore         # 把 [已修正] 的旧值放回生效位
+POST /api/import                        # 并入另一份 export，只做加法
 ```
 
 全部端点带 `Access-Control-Allow-Origin: *`，方便单独打开的 HTML 直接连。
@@ -396,7 +403,7 @@ DEEPSEEK_BRAIN_DIR=/tmp/brain node tools/demo.mjs   # 用临时数据目录，�
 | `test/memory.test.js` | 落盘/重启后记忆存活、观察闸门、recall、软删除、衰减清理、睡眠巩固、`apiState` 契约、演示数据、prompt 块、配置夹取 |
 | `test/activity.test.js` | 活动流：seq 单调、payload 不能伪造 `seq/kind`、未知 kind 回退、环形缓冲上限、`since()` 只返回增量 |
 | `test/server.test.js` | 全端点、CORS/预检、静态资源、路径穿越拒绝、坏 JSON 结构化报错、`salience` 派生、时间旅行、`forgetInDays` 预报、`POST /api/recall` |
-| `test/plugin.test.js` | cordis 契约、7 个工具 schema 只使用 DSH 支持的 JSON Schema 子集、端到端工具调用、`session/event` 捕获、prompt 注入 |
+| `test/plugin.test.js` | cordis 契约、11 个工具 schema 只使用 DSH 支持的 JSON Schema 子集、端到端工具调用、`session/event` 捕获、prompt 注入 |
 | `test/frontend.test.js` | 两个页面无远程依赖、内联脚本可编译、3D 页引用 vendor + `api/state` + 五层名称、`dist` 单文件把 three.js 内联且无外链 |
 
 调试入口：
@@ -432,7 +439,7 @@ deepseek-brain/
 ├── cordis.patch.yml          # DSH bundle 插入声明
 ├── package.json              # main: lib/index.js, dsh.bundle.patch
 ├── lib/
-│   ├── index.js              # 插件入口：7 个工具 + prompt 注入 + 事件捕获 + Web 挂载 + 自主遗忘定时器
+│   ├── index.js              # 插件入口：11 个工具 + prompt 注入 + 事件捕获 + Web 挂载 + 自主遗忘定时器
 │   ├── memory.js             # MemorySystem：五层编排、配置、状态、prompt 块、演示数据、遗忘预报
 │   ├── store.js              # 原子写、备份轮转、损坏恢复
 │   ├── sensory.js            # 感觉缓冲 + 实体抽取 + 注意闸门

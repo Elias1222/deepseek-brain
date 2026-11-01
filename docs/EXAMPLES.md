@@ -179,11 +179,46 @@ curl -s -X POST http://127.0.0.1:7799/deepseek-brain/api/recall \
 curl -s 'http://127.0.0.1:7799/deepseek-brain/api/activity?since=0' | jq '.events[] | {seq, kind, query, hits}'
 ```
 
-7 种事件：`observe`（用户输入过感觉缓冲）、`recall`（检索）、`remember`（写入）、`correct`（冲突修正）、
-`forget`（软删除）、`consolidate`（睡眠巩固迁移）、`decay`（衰减清理）。轮询 `?since=<上一批的 seq>` 即可增量取。
+9 种事件：`observe`（用户输入过感觉缓冲）、`recall`（检索）、`remember`（写入）、`edit`（就地修订）、
+`correct`（冲突修正 / 回滚）、`forget`（软删除）、`consolidate`（睡眠巩固迁移）、`decay`（衰减清理）、
+`import`（并入外部档案）。轮询 `?since=<上一批的 seq>` 即可增量取。
 
 > 小技巧：把 `api/state`、`api/activity` 接进你自己的脚本，就能在终端里复刻 3D 观测仪的读数；
 > 两个前端做的是同一件事，只是把它们画了出来。
+
+---
+
+## 示例五：改一条旧记忆，再把被顶替的说法放回去
+
+记忆不是只能读。改与回滚都走「留历史」的路径：旧的不会被物理删除，只会变成 `[已修正]`。
+
+```bash
+# 1) 把某条情景记忆的重要度从 2 提到 5（≥4 即进入「永不遗忘」）
+curl -s -X PATCH 'http://127.0.0.1:7799/deepseek-brain/api/memories/ep_abc123' \
+  -H 'content-type: application/json' \
+  -d '{"importance":5,"place":"三里屯","detail":"改到周五下午"}'
+# → {"ok":true,"layer":"episodic","item":{…},"changed":["importance","place","detail"],"corrected":[]}
+
+# 2) 语义事实说错了一次：新说法写入时旧说法自动降级
+curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/remember' -H 'content-type: application/json' \
+  -d '{"layer":"semantic","subject":"用户","relation":"职业","object":"设计师"}'
+curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/remember' -H 'content-type: application/json' \
+  -d '{"layer":"semantic","subject":"用户","relation":"职业","object":"产品设计师"}'
+
+# 3) 看现在哪条在生效、哪条被修正过
+curl -s 'http://127.0.0.1:7799/deepseek-brain/api/conflicts' | jq '.items[] | {object, current}'
+
+# 4) 发现新说法才是错的：把旧的放回生效位（新的降级为 [已修正]，两条都留着）
+curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/conflicts/sem_old123/restore'
+
+# 5) 换一台机器：把另一份 export 并进来，只做加法，重复的跳过
+curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/import' \
+  -H 'content-type: application/json' --data-binary @other-brain-export.json
+# → {"ok":true,"episodic":12,"semantic":4,"procedural":2,"skipped":3,"total":18}
+```
+
+在 3D 目镜里这是两个按钮：`重要度 −` / `重要度 +`（走同一条 `PATCH`）。改完 engram 的棘丝长度与亮度立刻变化，
+左栏的「永不遗忘 / 遗忘预报」计数同步跳动。
 
 
 ---

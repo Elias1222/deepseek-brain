@@ -196,3 +196,78 @@ test('a memory really disappears once its strength falls under the threshold', a
   const kinds = memory.activity.recent(6).map((e) => e.kind);
   assert.ok(kinds.includes('decay'), 'the decay sweep shows up in the activity stream');
 });
+
+test('update edits a memory in place without changing its identity', async () => {
+  const memory = await makeMemory({ demoSeed: false }).init();
+  const written = memory.remember({ layer: 'episodic', event: '和张伟在望京开会', importance: 2 }).item;
+  const result = memory.update(written.id, { importance: 5, place: '三里屯', detail: '改到周五' });
+  assert.equal(result.layer, 'episodic');
+  assert.deepEqual(result.changed.sort(), ['detail', 'importance', 'place']);
+  assert.equal(result.item.id, written.id, 'the id survives an edit');
+  assert.equal(result.item.ts, written.ts, 'the timestamp survives an edit');
+  assert.equal(result.item.importance, 5);
+  assert.equal(result.item.place, '三里屯');
+  const stored = memory.episodic.find((it) => it.id === written.id);
+  assert.equal(stored.revisions, 1);
+  assert.ok(stored.editedAt);
+  assert.ok(memory.activity.recent(3).some((e) => e.kind === 'edit'), 'the edit is a first-class activity event');
+});
+
+test('a semantic correction can be reviewed and rolled back', async () => {
+  const memory = await makeMemory({ demoSeed: false }).init();
+  const first = memory.remember({ layer: 'semantic', subject: '用户', relation: '职业', object: '设计师', importance: 4 }).item;
+  const second = memory.remember({ layer: 'semantic', subject: '用户', relation: '职业', object: '产品设计师', importance: 5 }).item;
+  const conflicts = memory.conflicts();
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].id, first.id);
+  assert.equal(conflicts[0].object, '设计师');
+  assert.equal(conflicts[0].current.id, second.id);
+  assert.equal(conflicts[0].current.object, '产品设计师');
+
+  const restored = memory.restoreSemantic(first.id);
+  assert.equal(restored.restored.id, first.id);
+  assert.equal(restored.replaced.id, second.id);
+  const live = memory.semantic.items.find((it) => it.status === 'active' && it.relation === '职业');
+  assert.equal(live.object, '设计师', 'the old value is live again');
+  const flipped = memory.semantic.items.find((it) => it.id === second.id);
+  assert.equal(flipped.status, 'corrected', 'the newer value is kept as history, not deleted');
+  assert.equal(memory.semantic.items.length, 2);
+  assert.equal(memory.conflicts().length, 1);
+});
+
+test('editing a semantic object goes through conflict detection instead of overwriting', async () => {
+  const memory = await makeMemory({ demoSeed: false }).init();
+  const first = memory.remember({ layer: 'semantic', subject: '用户', relation: '居住地', object: '北京', importance: 4 }).item;
+  const edited = memory.update(first.id, { object: '上海' });
+  assert.deepEqual(edited.changed, ['object']);
+  assert.equal(edited.item.object, '上海');
+  assert.equal(edited.corrected.length, 1);
+  assert.equal(edited.corrected[0].id, first.id);
+  assert.equal(memory.semantic.items.length, 2, 'history is preserved');
+});
+
+test('importArchive merges additively and skips what it already knows', async () => {
+  const memory = await makeMemory({ demoSeed: false }).init();
+  memory.remember({ layer: 'episodic', event: '已有的一件事', importance: 3 });
+  memory.remember({ layer: 'semantic', subject: '张伟', relation: '身份', object: '项目经理', importance: 4 });
+  const archive = {
+    version: '1.0.0',
+    episodic: { items: [{ event: '已有的一件事' }, { event: '从另一台机器带来的一件事', importance: 4, participants: ['铃'] }] },
+    semantic: {
+      items: [
+        { subject: '张伟', relation: '身份', object: '项目经理', status: 'active' },
+        { subject: '铃', relation: '身份', object: '代理人', status: 'active' },
+        { subject: '张伟', relation: '身份', object: '前任项目经理', status: 'corrected' },
+      ],
+    },
+    procedural: { items: [{ rule: '回答先给结论' }, { rule: '回答先给结论' }] },
+  };
+  const report = memory.importArchive(archive);
+  assert.equal(report.episodic, 1, 'only the genuinely new event is added');
+  assert.equal(report.semantic, 1, 'the corrected triple is never imported');
+  assert.equal(report.procedural, 1, 'duplicate rules collapse');
+  assert.ok(report.skipped >= 3);
+  assert.equal(memory.episodic.length, 2);
+  assert.ok(memory.episodic.some((it) => it.event === '从另一台机器带来的一件事' && it.tags.includes('imported')));
+  assert.ok(memory.activity.recent(3).some((e) => e.kind === 'import'));
+});
