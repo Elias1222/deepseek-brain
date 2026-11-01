@@ -471,6 +471,7 @@
 </div>
 <script src="./vendor/three.global.min.js"></script>
   <script src="./brain-mesh.js"></script>
+  <script src="./brain-mesh-low.js"></script>
 <script>
 (function () {
   'use strict';
@@ -1246,7 +1247,8 @@
      比程序化半球的 75k 更省，所以低画质档也照样换。 */
   var matReal = null;
   (function loadRealCortex() {
-    var bundle = window.__BRAIN_MESH;
+        /* 分级 LOD：低画质档用 24k 那份，其余用 90k */
+    var bundle = (QUALITY.low && window.__BRAIN_MESH_LOW) || window.__BRAIN_MESH;
     if (!bundle || !bundle.data || typeof DecompressionStream !== 'function') return;
     var bin = atob(bundle.data);
     var bytes = new Uint8Array(bin.length);
@@ -1262,7 +1264,7 @@
       var qp = new Uint16Array(buf, off, verts * 3); off += verts * 6;
       var qn = new Int8Array(buf, off, verts * 3); off += verts * 3;
       var qc = new Uint8Array(buf, off, verts * 3); off += verts * 3;
-      for (var k = 0; k < qc.length; k++) qc[k] = qc[k] * 0.30;
+      for (var k = 0; k < qc.length; k++) qc[k] = qc[k] * 0.52;
       var idx = new Uint32Array(buf, off, tris * 3);
 
       var pos = new Float32Array(verts * 3);
@@ -1285,7 +1287,7 @@
       var backM = new THREE.Mesh(geo, matBack); backM.renderOrder = 2; world.add(backM);
       /* 真网格的顶点色是按「无光照」校准的，套到标准材质上会被灯光抬亮，
          所以单独 clone 一份材质并压一个整体倍率。 */
-      if (!matReal) { matReal = matFront.clone(); matReal.color = new THREE.Color(0x6b6b6b); }
+      if (!matReal) { matReal = matFront.clone(); matReal.color = new THREE.Color(0x8f8f8f); }
       var frontM = new THREE.Mesh(geo, matReal); frontM.renderOrder = 3; world.add(frontM);
       hemis.length = 0;
       hemis.push(backM, frontM);

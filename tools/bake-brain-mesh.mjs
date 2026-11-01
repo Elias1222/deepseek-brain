@@ -3,10 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
+import { simplify } from './qem.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(HERE, '..', 'build');
 const OUT = path.join(HERE, '..', 'web', 'brain-mesh.js');
+const OUT_LOW = path.join(HERE, '..', 'web', 'brain-mesh-low.js');
 const TARGET_TRIS = Number(process.argv[2] || 42000);
 
 function parseVerts(text) {
@@ -93,16 +95,21 @@ function decimate(pos, idx, cells) {
   return { pos: vp, idx: Uint32Array.from(tri), verts: vp.length / 3, tris: tri.length / 3 };
 }
 
-let cells = 96;
 let lh;
 let rh;
-for (let attempt = 0; attempt < 10; attempt++) {
-  lh = decimate(hemi.lh.pos, hemi.lh.idx, cells);
-  rh = decimate(hemi.rh.pos, hemi.rh.idx, cells);
-  const total = lh.tris + rh.tris;
-  console.log(`cells=${cells} → lh ${lh.tris} + rh ${rh.tris} = ${total} tris`);
-  if (total <= TARGET_TRIS) break;
-  cells = Math.max(24, Math.round(cells * 0.88));
+{
+  /* 顶点聚类只用来给出一个「无重叠、已对齐」的中间网格，真正的简化交给 QEM：
+     聚类会把表面压成揉皱的锡纸，QEM 沿误差最小处折边，沟壁和平面都能保住。 */
+  const seedCells = 120;
+  const seedL = decimate(hemi.lh.pos, hemi.lh.idx, seedCells);
+  const seedR = decimate(hemi.rh.pos, hemi.rh.idx, seedCells);
+  const half = Math.max(2000, Math.round(TARGET_TRIS / 2));
+  const t0 = Date.now();
+  lh = simplify(seedL.pos, seedL.idx, half);
+  const t1 = Date.now();
+  rh = simplify(seedR.pos, seedR.idx, half);
+  console.log(`qem → lh ${lh.tris} + rh ${rh.tris} = ${lh.tris + rh.tris} tris ` +
+    `(lh ${t1 - t0} ms, rh ${Date.now() - t1} ms; seed ${seedL.tris + seedR.tris})`);
 }
 
 /* 3) 合并两半球，转到本项目的坐标：X 左右、Y 上、Z 前后，长度 4.04 */
@@ -276,3 +283,75 @@ const js = [
 fs.writeFileSync(OUT, js);
 fs.writeFileSync(path.join(SRC, 'brain-mesh.meta.json'), JSON.stringify(meta, null, 2));
 console.log('wrote', path.relative(process.cwd(), OUT), (js.length / 1024).toFixed(0), 'KB');
+
+/* 6) 分级 LOD：同一套 QEM 再折到 24k 三角，单独成一个文件。
+      低画质档 / 小屏只下载这一份，高画质档用上面那份 90k。 */
+{
+  const LOW_TRIS = 24000;
+  const lowL = simplify(lh.pos, lh.idx, LOW_TRIS / 2);
+  const lowR = simplify(rh.pos, rh.idx, LOW_TRIS / 2);
+  const lowVerts = lowL.verts + lowR.verts;
+  const lowTris = lowL.tris + lowR.tris;
+  const lowPos = new Float32Array(lowVerts * 3);
+  const lowIdx = new Uint32Array(lowTris * 3);
+  lowPos.set(lowL.pos, 0);
+  lowPos.set(lowR.pos, lowL.verts * 3);
+  lowIdx.set(lowL.idx, 0);
+  for (let i = 0; i < lowR.idx.length; i++) lowIdx[lowL.idx.length + i] = lowR.idx[i] + lowL.verts;
+
+  /* 与主资产同一套坐标变换与量化（复用上面算好的 c / scale / qmin / qmax） */
+  const lq = new Uint16Array(lowVerts * 3);
+  for (let v = 0; v < lowVerts; v++) {
+    const x = (lowPos[v * 3] - c[0]) * scale;
+    const y = (lowPos[v * 3 + 2] - c[2]) * scale;
+    const z = (lowPos[v * 3 + 1] - c[1]) * scale;
+    lq[v * 3] = Math.round(((x - qmin[0]) / (qmax[0] - qmin[0] || 1)) * 65535);
+    lq[v * 3 + 1] = Math.round(((y - qmin[1]) / (qmax[1] - qmin[1] || 1)) * 65535);
+    lq[v * 3 + 2] = Math.round(((z - qmin[2]) / (qmax[2] - qmin[2] || 1)) * 65535);
+  }
+  const lnrm = new Int8Array(lowVerts * 3);
+  const lacc = new Float32Array(lowVerts * 3);
+  for (let t = 0; t < lowIdx.length; t += 3) {
+    const a = lowIdx[t] * 3, b = lowIdx[t + 1] * 3, d = lowIdx[t + 2] * 3;
+    const ux = lowPos[b] - lowPos[a], uy = lowPos[b + 1] - lowPos[a + 1], uz = lowPos[b + 2] - lowPos[a + 2];
+    const vx = lowPos[d] - lowPos[a], vy = lowPos[d + 1] - lowPos[a + 1], vz = lowPos[d + 2] - lowPos[a + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    for (const k of [a, b, d]) { lacc[k] += nx; lacc[k + 1] += ny; lacc[k + 2] += nz; }
+  }
+  for (let i = 0; i < lacc.length; i += 3) {
+    const l = Math.hypot(lacc[i], lacc[i + 1], lacc[i + 2]) || 1;
+    lnrm[i] = Math.round((lacc[i] / l) * 127);
+    lnrm[i + 1] = Math.round((lacc[i + 1] / l) * 127);
+    lnrm[i + 2] = Math.round((lacc[i + 2] / l) * 127);
+  }
+  const lcol = new Uint8Array(lowVerts * 3);
+  lcol.fill(150);
+
+  const lh2 = Buffer.alloc(20);
+  lh2.writeUInt32LE(lowVerts, 0);
+  lh2.writeUInt32LE(lowTris, 4);
+  const lbody = Buffer.concat([
+    Buffer.from(lq.buffer), Buffer.from(lnrm.buffer), Buffer.from(lcol.buffer), Buffer.from(lowIdx.buffer),
+  ]);
+  const lgz = zlib.gzipSync(Buffer.concat([lh2, lbody]), { level: 9 });
+  const lb64 = lgz.toString('base64');
+  const lmeta = {
+    verts: lowVerts,
+    tris: lowTris,
+    bbox: meta.bbox,
+    source: meta.source,
+  };
+  const ljs = [
+    '/* 自动生成，请勿手改：tools/bake-brain-mesh.mjs（低画质 LOD）',
+    ' * 数据来源：Thomas Habets (https://github.com/ThomasHabets/brain)，CC BY 4.0',
+    ' */',
+    'window.__BRAIN_MESH_LOW = {',
+    '  meta: ' + JSON.stringify(lmeta) + ',',
+    '  data: \'' + lb64 + '\',',
+    '};',
+    '',
+  ].join('\n');
+  fs.writeFileSync(OUT_LOW, ljs);
+  console.log('wrote low LOD', path.relative(process.cwd(), OUT_LOW),
+    lowTris, 'tris', (ljs.length / 1024).toFixed(0), 'KB');
+}
