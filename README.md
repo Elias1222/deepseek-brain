@@ -164,7 +164,7 @@ dsh plugin add ./deepseek-brain
 | `brain_forget` | 软删除到 `archive.json` | `id` |
 | `brain_sleep` | 衰减清理 + 睡眠巩固 | `minAgeHours` |
 | `brain_snapshot` | 导出 Markdown / JSON 档案 | `format` |
-| `brain_reset` | 把大脑清空成空白（五层 + 归档 + 活动流 + 计数器），必须传 `confirm: "reset"` | `confirm` |
+| `brain_reset` | 把大脑清空成空白（五层 + 归档 + 活动流 + 计数器），必须传 `confirm: "reset"`；默认先写一份 `snapshots/pre-reset-*.md` 留底（`snapshot: false` 可关） | `confirm` `snapshot` |
 | `brain_dashboard` | 启动或复用本地仪表盘，返回 URL | — |
 
 注入到 System Prompt 的内容（`order: 130`，`interpolate: false`）包含五条铁律、当前话题栈焦点、程序记忆规则、高权重情景记忆与实体归一表：

@@ -3602,7 +3602,8 @@ function bindConsole(){
         btn.textContent = '清空大脑'; btn.classList.remove('warn');
         var c = res.cleared || {};
         $('dockNote').innerHTML = '已清空 · 情景 ' + (c.episodic||0) + ' · 语义 ' + (c.semantic||0) +
-          ' · 程序 ' + (c.procedural||0) + ' · 归档 ' + (c.archive||0) + ' · 新世代 <b>' + esc((res.boot&&res.boot.id)||'?') + '</b>';
+          ' · 程序 ' + (c.procedural||0) + ' · 归档 ' + (c.archive||0) + ' · 新世代 <b>' + esc((res.boot&&res.boot.id)||'?') + '</b>' +
+          (res.snapshot ? ' · 已留底 <b>' + esc(String(res.snapshot).split(/[\\/]/).pop()) + '</b>' : '');
         return refreshState(true).then(function(){ pollActivity(); renderAll(); });
       }).catch(function(e){
         btn.textContent = '清空大脑'; btn.classList.remove('warn');

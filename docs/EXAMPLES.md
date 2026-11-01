@@ -263,7 +263,7 @@ curl -sX POST localhost:7801/deepseek-brain/api/reset -H 'content-type: applicat
 curl -s localhost:7801/deepseek-brain/api/state | jq "{total:.stats.total, ep:(.episodic|length), seq:.activitySeq}"
 ```
 
-插件里就是一句 `brain_reset { "confirm": "reset" }`；观测仪控制台也有「清空大脑」按钮——两步确认，3.2 s 内不点第二次就自动收回，清完在控制台留下 `已清空 · 情景 N / 语义 N / 程序 N / 归档 N · 新世代 xxxx`。
+清空前它默认会先写一份 `snapshots/pre-reset-<时刻>.md`（要真的从零开始就传 `"snapshot": false`）。插件里就是一句 `brain_reset { "confirm": "reset" }`；观测仪控制台也有「清空大脑」按钮——两步确认，3.2 s 内不点第二次就自动收回，清完在控制台留下 `已清空 · 情景 N / 语义 N / 程序 N / 归档 N · 新世代 xxxx`。
 
 ## 一次完整的 20 天剧本
 

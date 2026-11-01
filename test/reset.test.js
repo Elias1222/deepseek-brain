@@ -43,3 +43,23 @@ test('resetAll leaves empty structures on disk instead of stale memories', async
   const again = await new MemorySystem({ dataDir: dir }).init();
   assert.equal(again.episodic.length, 0, 'a fresh process sees an empty brain');
 });
+
+test('resetAll writes a pre-reset snapshot you can go back to', async () => {
+  const dir = tempDir();
+  const memory = await new MemorySystem({ dataDir: dir, demoSeed: true }).init();
+  memory.remember({ layer: 'episodic', event: '清空前的最后一条', importance: 5 });
+
+  const report = memory.resetAll();
+  assert.ok(report.snapshot, 'a snapshot path is reported');
+  assert.ok(fs.existsSync(report.snapshot), 'the snapshot file exists');
+  const md = fs.readFileSync(report.snapshot, 'utf8');
+  assert.match(md, /清空前的最后一条/, 'the snapshot keeps the memory that was about to be lost');
+  assert.equal(memory.episodic.length, 0);
+});
+
+test('resetAll can skip the snapshot when you really mean it', async () => {
+  const dir = tempDir();
+  const memory = await new MemorySystem({ dataDir: dir, demoSeed: true }).init();
+  const report = memory.resetAll({ snapshot: false });
+  assert.equal(report.snapshot, undefined);
+});

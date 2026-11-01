@@ -292,6 +292,7 @@ curl -sX POST localhost:7801/deepseek-brain/api/reset \
 ```
 
 - 必须带 `confirm: "reset"`，否则 `400 missing-confirm`；只读实例一律 `503 read-only`。
+- **默认先留底**：清空前把当前记忆写成 `snapshots/pre-reset-<时刻>.md`，路径回到响应的 `snapshot` 字段里；`{"confirm":"reset","snapshot":false}` 关掉。写盘失败不会阻止清空，但会在 `snapshotError` 里说明原因。
 - 清空后仍然落盘（写出空结构），所以不会留下「删了但没删干净」的错觉；世代计数从 1 重新开始。
 
 ## 5. Debug / transfer
