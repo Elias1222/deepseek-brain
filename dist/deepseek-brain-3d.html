@@ -1862,7 +1862,8 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     N.mesh.setMatrixAt(rec.inst, _m4);
     var c = rec.tintColor;
     N.tint.setXYZ(rec.inst, c.r, c.g, c.b);
-    var heatK = 1 + 0.55 * (APP.heat && rec.layer in APP.heat ? heatNorm(rec.layer) : 0);
+    var heatK = 1 + 0.30 * (APP.heat && rec.layer in APP.heat ? heatNorm(rec.layer) : 0) +
+      0.85 * heatKeyNorm(rec.id);
     N.glow.setX(rec.inst, clamp((0.08 + 0.98 * rec.salience) * heatK, 0, 1.6));
     N.hi.setX(rec.inst, hi == null ? (APP.selected === rec.id ? 0.85 : 0) : hi);
     N.dim.setX(rec.inst, dim == null ? ((APP.selected && APP.selected !== rec.id) ? 1 : 0) : dim);
@@ -3320,6 +3321,36 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     return out;
   })();
 
+  /* 层内热度：热度落到具体 engram 上，亮的是一簇而不是整层。 */
+  APP.heatK = {};
+  var heatKMax = 0.001;
+  function heatAddKey(key, amount) {
+    if (!key) return;
+    APP.heatK[key] = clamp((APP.heatK[key] || 0) + amount, 0, 4);
+  }
+  function heatKeyNorm(key) {
+    if (!key) return 0;
+    return clamp((APP.heatK[key] || 0) / heatKMax, 0, 1);
+  }
+  function heatHotKey() {
+    var best = null, bv = 0;
+    Object.keys(APP.heatK).forEach(function (k) {
+      if (APP.heatK[k] > bv) { bv = APP.heatK[k]; best = k; }
+    });
+    return best;
+  }
+  function heatSpreadToText(topic) {
+    if (!topic) return;
+    var needle = String(topic).trim();
+    if (needle.length < 2) return;
+    var touched = 0;
+    allEngrams(APP.model).forEach(function (rec) {
+      if (touched >= 6) return;
+      var blob = (rec.title || '') + ' ' + (rec.sub || '') + ' ' + (rec.detail || '');
+      if (blob.indexOf(needle) >= 0) { heatAddKey(rec.id, 0.42); touched++; }
+    });
+  }
+
   var heatNote = null;
   function renderHeatNote() {
     if (!heatNote) {
@@ -3330,13 +3361,26 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
       if (host && host.parentNode) host.parentNode.appendChild(heatNote);
     }
     var best = LAYERS.slice().sort(function (a, b) { return APP.heat[b] - APP.heat[a]; })[0];
-    heatNote.textContent = APP.heat[best] > 0.08
-      ? ('关注：' + REGION[best].label + ' ' + heatNorm(best).toFixed(2) + ' · 半衰期 32 s')
-      : '关注：静默，热度已归零。';
+    if (!(APP.heat[best] > 0.08)) {
+      heatNote.textContent = '关注：静默，热度已归零。';
+      return;
+    }
+    var hotId = heatHotKey();
+    var hot = hotId && APP.model && APP.model.byId ? APP.model.byId[hotId] : null;
+    heatNote.textContent = '关注：' + REGION[best].label + ' ' + heatNorm(best).toFixed(2) +
+      (hot ? ' · 「' + truncate(hot.title || '', 14) + '」' : '');
   }
 
   function updateHeat(dt) {
     heatDecay(dt);
+    var kk = Math.pow(0.5, (dt * 1000) / HEAT_HALF_MS);
+    var mk = 0.001;
+    Object.keys(APP.heatK).forEach(function (key) {
+      var v = APP.heatK[key] * kk;
+      if (v < 0.02) delete APP.heatK[key];
+      else { APP.heatK[key] = v; if (v > mk) mk = v; }
+    });
+    heatKMax = mk;
     var m = heatMax();
     LAYERS.forEach(function (key) {
       var w = heatNorm(key);
@@ -3359,15 +3403,15 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     var prefix = demo ? '演示 · ' : '';
     var kind = ev.kind;
     /* 事件 → 热度：写入抬自己那层，检索抬命中项所在层，睡眠是一次全局收敛 */
-    if (kind === 'observe') heatAdd('sensory', 0.6), heatAdd('working', 1.0);
-    else if (kind === 'remember') heatAdd(ev.layer || 'episodic', 1.6);
+    if (kind === 'observe') { heatAdd('sensory', 0.6); heatAdd('working', 1.0); heatSpreadToText(ev.topic || ev.text); }
+    else if (kind === 'remember') { heatAdd(ev.layer || 'episodic', 1.6); heatAddKey(ev.id, 1.6); }
     else if (kind === 'recall') {
-      (ev.hits || []).forEach(function (h) { heatAdd(h.layer, 1.1); });
+      (ev.hits || []).forEach(function (h) { heatAdd(h.layer, 1.1); heatAddKey(h.id, 1.1); });
       heatAdd('working', 0.5);
-    } else if (kind === 'edit') heatAdd(ev.layer || 'episodic', 0.9);
-    else if (kind === 'correct') heatAdd('semantic', 1.2);
-    else if (kind === 'forget' || kind === 'prune') heatAdd(ev.layer || 'semantic', -0.5);
-    else if (kind === 'restore' || kind === 'archive') heatAdd(ev.layer || 'episodic', 0.7);
+    } else if (kind === 'edit') { heatAdd(ev.layer || 'episodic', 0.9); heatAddKey(ev.id, 0.9); }
+    else if (kind === 'correct') { heatAdd('semantic', 1.2); heatAddKey(ev.id, 1.2); heatAddKey(ev.replacedBy, 1.0); }
+    else if (kind === 'forget' || kind === 'prune') { heatAdd(ev.layer || 'semantic', -0.5); heatAddKey(ev.id, -0.5); }
+    else if (kind === 'restore' || kind === 'archive') { heatAdd(ev.layer || 'episodic', 0.7); heatAddKey(ev.id, 0.7); }
     else if (kind === 'consolidate' || kind === 'sleep') {
       LAYERS.forEach(function (k) { APP.heat[k] *= 0.62; });
     }
