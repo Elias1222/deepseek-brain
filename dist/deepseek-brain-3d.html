@@ -934,7 +934,7 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     /* 三个极部：更小的半径 + 更靠前/后，靠并集的圆角把主体收成锥形 */
     [0.00, -0.02, 0.88, 0.46, 0.42, 0.30, 0],  /* 额极：窄、略低，压出眉弓下的收口 */
     [-0.56, -0.34, 0.66, 0.33, 0.27, 0.28, 1], /* 颞极：向前下方探出的钩 */
-    [0.00, -0.02, -1.00, 0.36, 0.30, 0.24, 0]  /* 枕极：收成一小段锥 */
+    [0.00, -0.02, -0.94, 0.40, 0.34, 0.28, 0]  /* 枕极：收成一小段锥 */
   ];
 
   function lobeField(x, y, z, side) {
@@ -963,19 +963,14 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     return (lo + hi) * 0.5;
   }
 
-  /* 把叶并集的最大半径归一化到 1，BRAIN.AX/AY/AZ 才是真正的尺寸 */
+  /* 三轴分别归一：并集在 ±X、+Y、±Z 上的实际伸展各自映到 1。
+     之前用「所有方向里的最大半径」统一去除，等于把极部的收窄又按比例缩放回去；
+     分轴之后，额极/枕极的细瘦是形状本身的性质，不会被归一化抹平。       */
   var LOBE_K = (function () {
-    var m = 0.001;
-    for (var i = 0; i < 32; i++) {
-      var a = (i / 32) * Math.PI * 2;
-      for (var j = 1; j < 8; j++) {
-        var el = -1 + (2 * j) / 8;
-        var rr = Math.sqrt(Math.max(0, 1 - el * el));
-        var d = lobeRadius(Math.cos(a) * rr, el, Math.sin(a) * rr, 1);
-        if (d > m) m = d;
-      }
-    }
-    return 1 / m;
+    var kx = 1 / Math.max(lobeRadius(1, 0, 0, 1), lobeRadius(-1, 0, 0, 1), 0.001);
+    var ky = 1 / Math.max(lobeRadius(0, 1, 0, 1), lobeRadius(0, -1, 0, 1), 0.001);
+    var kz = 1 / Math.max(lobeRadius(0, 0, 1, 1), lobeRadius(0, 0, -1, 1), 0.001);
+    return { x: kx, y: ky, z: kz };
   })();
 
   /* ── 一级沟骨架 ───────────────────────────────────────────────────────
@@ -1099,15 +1094,15 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     var sul = det.sul, bump = det.bump;
     var disp = 1 + 0.094 * bump - 0.118 * sul;
     /* 叶形半径：同一条射线上的边界由四叶并集给出，不再是单位球 */
-    var lobe = lobeRadius(px, py, pz, side) * LOBE_K;
+    var r0 = lobeRadius(px, py, pz, side);
     var mx = softMax(px, 0.018, 0.085);
     /* the base of the brain is flat (inferior surface), not a sphere cap */
     var pyFlat = py < -0.30 ? -0.30 + (py + 0.30) * 0.58 : py;
-    var x = side * mx * lobe * disp * BRAIN.AX * 0.92;
-    var y = pyFlat * lobe * disp * BRAIN.AY * 0.88 + 0.05 * smoothstep(0.4, 1.0, -pz);
-    var z = pz * lobe * disp * BRAIN.AZ;
+    var x = side * mx * r0 * LOBE_K.x * disp * BRAIN.AX * 0.92;
+    var y = pyFlat * r0 * LOBE_K.y * disp * BRAIN.AY * 0.88 + 0.05 * smoothstep(0.4, 1.0, -pz);
+    var z = pz * r0 * LOBE_K.z * disp * BRAIN.AZ;
     /* 颅顶弧线：中段最高，额极与枕极都往下沉，避免两头是等高的圆球面 */
-    y -= 0.125 * smoothstep(0.18, 0.98, Math.abs(pz)) * lobe * BRAIN.AY * 0.88;
+    y -= 0.125 * smoothstep(0.18, 0.98, Math.abs(pz)) * r0 * BRAIN.AY * 0.88;
     /* 极部再收一点宽度，从上方看是卵形而不是跑道形 */
     x *= 1 - 0.13 * smoothstep(0.34, 1.0, Math.abs(pz));
     return { x: x, y: y, z: z, sul: sul, bump: bump, shade: clamp(0.20 + 0.95 * bump * (1 - 0.85 * sul) + 0.10 * warpB, 0, 1) };
@@ -2281,6 +2276,7 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
       el.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
     });
     ARC_LABELS.forEach(function (item) {
+      if (w < 720) { item.el.style.opacity = '0'; return; }
       var mid = arcStart(item.layer) + (ARC_SPAN - 0.12) * 0.5;
       var p3 = archivePoint(mid).multiplyScalar(1 + 0.26 / TUNING.ARCHIVE_R);
       _proj.copy(p3).project(camera);
@@ -3555,7 +3551,7 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     traceBuf.mat.uniforms.uRes.value.set(w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
     traceBuf.mat.uniforms.uPixelRatio.value = 1;
     /* 竖屏时横向视野更窄：把标本按比例拉远，避免被裁掉两颞侧 */
-    var fit = camera.aspect < 1 ? clamp(1.02 / camera.aspect, 1, 1.75) : 1;
+    var fit = camera.aspect < 1 ? clamp(1.02 / camera.aspect, 1, 1.56) : 1;
     if (Math.abs(fit - num(APP.fit, 1)) > 0.001) {
       APP.fit = fit;
       if (!APP.selected && !fly && Math.abs(APP.atDays) < 0.02) {
