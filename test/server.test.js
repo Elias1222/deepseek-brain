@@ -433,6 +433,25 @@ test('activity log records cognition and can be polled incrementally', async () 
   });
 });
 
+test('a read-only instance refuses writes with 503 instead of pretending', async () => {
+  await withServer(async ({ origin, memory }) => {
+    memory.readOnly = true;
+    memory.lock = { ok: false, holder: { pid: 4242, at: Date.now() } };
+    const res = await get(origin, '/api/remember', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ layer: 'episodic', event: '不该写进去' }),
+    });
+    assert.equal(res.status, 503);
+    assert.equal(res.json.error.code, 'read-only');
+    assert.ok(/4242/.test(res.json.error.message), 'the message names the lock holder');
+
+    const read = await get(origin, '/api/state');
+    assert.equal(read.status, 200, 'reads still work in read-only mode');
+    memory.readOnly = false;
+  });
+});
+
 test('the activity endpoint reports a stable process generation', async () => {
   await withServer(async ({ origin }) => {
     const first = await get(origin, '/api/activity?since=0&limit=5');

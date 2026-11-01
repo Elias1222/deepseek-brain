@@ -123,6 +123,13 @@ The brain's electrophysiology. In-memory ring buffer (default 240 events), monot
 | `decay` | `sessionId, count, ids[]` | weak engrams fade out in sequence |
 | `import` | `sessionId, episodic, semantic, procedural, skipped` | a batch of engrams arrives from another brain (`imported` tag) |
 
+### 只读模式
+
+当数据目录被另一个活进程锁住（`brain.lock` 里的 pid 仍在），本实例以只读启动：
+
+- `GET /api/health` → `{ ok:true, readOnly:true, lock:{ pid, at, host } }`；
+- 任何非 GET 请求（remember / forget / sleep / decay / recall… 的写路径）→ `503 { ok:false, error:{ code:"read-only", message:"data dir is locked by pid N — this instance is read-only" } }`；
+- 读接口照常返回数据，方便对照。
 ## 4. Write / edit / forget / consolidate
 
 ```jsonc

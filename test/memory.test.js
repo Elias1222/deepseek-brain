@@ -340,6 +340,19 @@ test('pruneConflicts archives stale versions but keeps the newest one per slot',
   assert.equal(again.removed, 0, 'second pass is a no-op');
 });
 
+test('a locked data dir makes the second system read-only instead of clobbering it', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-ro-'));
+  /* 用父进程的 pid 冒充「另一个还活着的进程」——它一定存在，而且不是我们 */
+  fs.writeFileSync(path.join(dir, 'brain.lock'), JSON.stringify({ pid: process.ppid, at: Date.now(), host: 'test' }));
+
+  const second = await new MemorySystem({ dataDir: dir }).init();
+  assert.equal(second.readOnly, true);
+  assert.ok(second.warnings.some((w) => /read-only/.test(w)), 'the warning explains why');
+
+  second.remember({ layer: 'episodic', event: '只读模式下不应该落盘' });
+  assert.equal(fs.existsSync(path.join(dir, 'episodic.json')), false, 'nothing may be written while read-only');
+});
+
 test('every process start stamps a new generation into stats.json', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-boot-'));
   const first = await new MemorySystem({ dataDir: dir }).init();
