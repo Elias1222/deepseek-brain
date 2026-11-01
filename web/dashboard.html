@@ -2916,6 +2916,7 @@ function revRender(){
     return;
   }
   var versions = data.versions;
+  $('revMeta').textContent = 'REVISIONS · ' + (data.layer || REV.layer || '—') + ' · 共 ' + versions.length + ' 版 · ' + REV.id;
   var view = REV.ver != null ? null : versions[versions.length - 1];
   if(REV.ver != null){
     versions.forEach(function(v){ if(v.v === REV.ver) view = v; });
@@ -2933,10 +2934,11 @@ function revRender(){
 
   var canRestore = !view.current;
   $('revRestore').hidden = !canRestore;
+  var capped = versions.length >= 20 ? ' · 已达 20 版上限，再改会丢最旧一版' : '';
   if(canRestore){
-    revSetStatus('v' + view.v + ' 不是当前生效版 · 可恢复', '');
+    revSetStatus('v' + view.v + ' 不是当前生效版 · 可恢复' + capped, '');
   } else {
-    revSetStatus('v' + view.v + ' 是当前生效版', '');
+    revSetStatus('v' + view.v + ' 是当前生效版' + capped, '');
   }
 }
 
@@ -2961,6 +2963,18 @@ function revOpen(id, layer, title){
     revRender();
   }).catch(function(err){
     if(REV.id !== id) return;
+    var transient = layer === 'sensory' || layer === 'working';
+    if(transient){
+      revSetStatus('感觉/工作记忆只在内存里，不落盘，因此没有版本链', '');
+      var found = revFindItem(id);
+      $('revChips').innerHTML = '<span class="rev-chip on">内存态 · 无历史</span>';
+      $('revFields').innerHTML = found ? revFieldsHtml(found.item) : '';
+      return;
+    }
+    if(err && err.message === 'not-found'){
+      revSetStatus('这条记忆没有版本记录（可能是演示数据或已被归档）', '');
+      return;
+    }
     revSetStatus('读取失败 · ' + (err && err.message ? err.message : 'unknown'), 'bad');
   });
 }
