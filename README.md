@@ -273,7 +273,7 @@ ASCII 脑图（见第 3 节）+ 健康面板：总记忆数、本周新增、遗
 - **纤维追踪 TRACTOGRAPHY**：力导向的语义纤维束，主体/客体分级着色，`[已修正]` 用虚线束；右侧实体档案按度数排序，点实体列出它的全部事实；再下方是**废弃事实面板**——按「主体 → 关系」聚合被修正的旧值，每个槽位保留最近 1 条，多出来的点一下就软归档到 `archive.json`（可先看「可归档 K 条」再动手）。
 - **衰减实验 DECAY LAB**：左侧时间转盘（±30 天）真的会 `GET /api/state?at=`，右侧强度曲线族按当前 λ 画出每条记忆的衰减轨迹与阈值穿越点，右下是遗忘预报清单（按 `forgetInDays` 升序）。
 
-底部是控制台与**活动记录**：每一次 `observe / recall / remember / correct / forget / consolidate / decay` 都带 `seq` 落在这里，一行一条（例如 `#001 22:39:22 检索「张伟 会议 排期」· 3 命中 · 3ms`）。
+底部是控制台与**活动记录**：每一次 `observe / recall / remember / correct / forget / consolidate / decay` 都带 `seq` 落在这里（3D 页优先用 `GET /api/events` 的 SSE 推送，实测事件到达约 95 ms；没有 `EventSource` 或端点缺失时自动退回 1 秒轮询），一行一条（例如 `#001 22:39:22 检索「张伟 会议 排期」· 3 命中 · 3ms`）。
 
 API 挂在 `/deepseek-brain/api/*`，契约见 [`docs/API.md`](docs/API.md)：
 
@@ -333,7 +333,7 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 | 顶栏 `事件序号`、观测条脉冲 | `GET /api/activity?since=` 的增量：Agent 每次检索/写入/遗忘都在标本上打出一次脉冲 |
 | 检索台 | 真的 `POST /api/recall`，命中项按 `score` 亮起并连出白质纤维束 |
 | 「睡眠 / 衰减 / 遗忘」压印按钮 | 真的 `POST /api/sleep`、`/api/decay`、`/api/forget`，迁移与归档在标本上留下路径与残影 |
-| 归档环里的往返 | `forget` / `decay` 让 engram 缩着飞向底板外环（归档去向）；`restore` 让它沿同一路径从环里长回来，`undo`（撤销取回）再反向飞出去——轨迹都来自活动流的真实事件 |
+| 归档环里的往返 | 底板外环按五层切成五段扇区（每段用该层染料），`forget` / `decay` 让 engram 缩着飞向**自己那一段**；`restore` 沿同一路径长回来，`undo` 再反向飞出去——落点由 `archiveAngle(layer, slot.u)` 决定，不是随机角度 |
 
 **三种模式**：`观测`（全景标本）、`目镜`（选中单条记忆的切片）、`剖面`（切开半球看深部结构）。
 

@@ -1430,6 +1430,20 @@
   var COL_DIM = new THREE.Color('#3b4a48');
 
   var ARCHIVE_Y = -0.62;
+  /* 归档环按层切成五段扇区：每层的记忆只会飞向自己那一段 */
+  var ARC_SPAN = Math.PI * 2 / 5;
+  var ARC_ORDER = ['sensory', 'working', 'episodic', 'semantic', 'procedural'];
+  function arcIndexOf(layer) {
+    var i = ARC_ORDER.indexOf(layer);
+    return i < 0 ? 2 : i;
+  }
+  /* 层的扇区起点（留 0.06 rad 缝，五段之间不粘在一起） */
+  function arcStart(layer) {
+    return arcIndexOf(layer) * ARC_SPAN + 0.06;
+  }
+  function archiveAngle(layer, theta01) {
+    return arcStart(layer) + (ARC_SPAN - 0.12) * theta01;
+  }
   function archivePoint(theta, out) {
     var p = out || new THREE.Vector3();
     return p.set(Math.cos(theta) * TUNING.ARCHIVE_R, ARCHIVE_Y, Math.sin(theta) * TUNING.ARCHIVE_R);
@@ -1454,18 +1468,26 @@
           COL_TRACT.r, COL_TRACT.g, COL_TRACT.b, pr[3] * fade);
       }
     });
-    /* archive ring + degree ticks */
-    var circ = [], i;
-    for (i = 0; i <= 180; i++) circ.push(archivePoint(i / 180 * Math.PI * 2));
-    b.poly(circ, COL_RING, 0.30, true);
-    for (i = 0; i < 120; i++) {
-      var th = i / 120 * Math.PI * 2;
-      var long = i % 10 === 0;
-      var p0 = archivePoint(th);
-      var p1 = archivePoint(th).multiplyScalar(1 + (long ? 0.045 : 0.020) / TUNING.ARCHIVE_R);
-      p1.y = ARCHIVE_Y;
-      b.seg(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, COL_RING.r, COL_RING.g, COL_RING.b, long ? 0.40 : 0.16);
-    }
+    /* archive ring：五段扇区，每段用自己那一层的染料 */
+    var i;
+    LAYERS.forEach(function (key) {
+      var a0 = arcStart(key), a1 = a0 + (ARC_SPAN - 0.12);
+      var pts = [];
+      for (i = 0; i <= 40; i++) pts.push(archivePoint(a0 + (a1 - a0) * (i / 40)));
+      b.poly(pts, new THREE.Color(REGION[key].color), 0.34, true);
+      /* 每段 6 根刻度，越靠近扇区中心越长，暗示「这一格属于这一层」 */
+      for (var k = 0; k < 6; k++) {
+        var th = a0 + (a1 - a0) * ((k + 0.5) / 6);
+        var long = k === 2 || k === 3;
+        var p0 = archivePoint(th);
+        var p1 = archivePoint(th).multiplyScalar(1 + (long ? 0.05 : 0.022) / TUNING.ARCHIVE_R);
+        p1.y = ARCHIVE_Y;
+        b.seg(p0.x, p0.y, p0.z, p1.x, p1.y, p1.z,
+          REGION[key].color ? new THREE.Color(REGION[key].color).r : COL_RING.r,
+          new THREE.Color(REGION[key].color).g, new THREE.Color(REGION[key].color).b,
+          long ? 0.42 : 0.18);
+      }
+    });
     /* hippocampal index ring (the topK candidate pool) */
     var hipC = A.episodic.clone();
     var bE = BASIS.episodic || (BASIS.episodic = regionBasis('episodic'));
@@ -2254,6 +2276,7 @@
     pill.classList.toggle('warn', !live);
     $('connText').textContent = live ? ('LIVE · SESSION ' + (APP.sessionId || 'default')) : '离线演示';
     stageEl.classList.toggle('offline', !live);
+    if (live) openEventStream(); else closeEventStream();
   }
 
   function atLabel() {
@@ -3152,15 +3175,15 @@
       var rec = APP.model && APP.model.byId[ev.id];
       if (rec) {
         APP.moving.push({ rec: rec, t: 0, dur: 1.0, from: rec.pos.clone(),
-          to: archivePoint((rec.slot.theta || 0) * 0.85), fade: true });
+          to: archivePoint(archiveAngle(rec.layer, rec.slot.u || 0.5)), fade: true });
       }
       toast(prefix + 'forget · ' + truncate(ev.title || ev.id || '', 24));
       setTimeout(function () { refreshState({ quiet: true }); }, 900);
     } else if (kind === 'restore' || kind === 'archive') {
       /* restore：从归档环飞回它自己的槽位；archive(undo)：反向飞回归档环 */
       var home = ev.layer && ev.id ? regionPosition(ev.layer, ev.id) : null;
-      var theta = ev.id ? slotOf(ev.id).theta * 0.85 : 0;
-      var ringAt = archivePoint(theta);
+      var theta01 = ev.id ? slotOf(ev.id).u : 0.5;
+      var ringAt = archivePoint(archiveAngle(ev.layer || 'episodic', theta01));
       var col = new THREE.Color(REGION[ev.layer] ? REGION[ev.layer].color : '#e6e0d2');
       var outward = kind === 'restore';
       toast(prefix + (outward ? 'restore · ' : 'archive · ') + truncate(ev.title || ev.id || '', 24));
@@ -3194,7 +3217,7 @@
         var r = APP.model && APP.model.byId[id];
         if (!r) return;
         APP.moving.push({ rec: r, t: -i * 0.08, dur: 0.9, from: r.pos.clone(),
-          to: archivePoint((r.slot.theta || 0) * 0.85), fade: true });
+          to: archivePoint(archiveAngle(r.layer, r.slot.u || 0.5)), fade: true });
       });
       toast(prefix + 'decay · ' + num(ev.count, (ev.ids || []).length) + ' 条变暗归档');
       setTimeout(function () { refreshState({ quiet: true }); }, 1100);
@@ -3211,6 +3234,37 @@
       evs.forEach(function (ev) { ingestEvent(ev, false); });
       syncReads();
     }).catch(function () { /* keep quiet; state poll decides offline */ });
+  }
+
+  /* 活动流改成服务端推送：事件一到就放动画，不再等下一次轮询 */
+  function openEventStream() {
+    if (APP.es || typeof window.EventSource !== 'function' || !APP.live) return;
+    var es;
+    try {
+      es = new window.EventSource('api/events?since=' + (APP.seq || 0));
+    } catch (e) {
+      return;
+    }
+    APP.es = es;
+    es.addEventListener('activity', function (msg) {
+      var payload;
+      try { payload = JSON.parse(msg.data); } catch (e) { return; }
+      var evs = (payload && payload.events) || [];
+      APP.seq = num(payload && payload.seq, APP.seq);
+      evs.forEach(function (ev) { ingestEvent(ev, false); });
+      syncReads();
+    });
+    es.onerror = function () {
+      /* 服务端没这个端点（旧版本）或连接断了：关掉，退回 1 秒轮询 */
+      try { es.close(); } catch (e) { /* noop */ }
+      if (APP.es === es) APP.es = null;
+    };
+  }
+
+  function closeEventStream() {
+    if (!APP.es) return;
+    try { APP.es.close(); } catch (e) { /* noop */ }
+    APP.es = null;
   }
 
   function startDemoStream() {
@@ -3592,7 +3646,7 @@
       if (!m) useDemo();
       else setStatus('GET api/state · ' + atLabel(), 'LIVE · SESSION ' + escapeHTML(APP.sessionId), '');
     });
-    setInterval(function () { if (APP.live) pollActivity(); }, TUNING.POLL_ACT_MS);
+    setInterval(function () { if (APP.live && !APP.es) pollActivity(); }, TUNING.POLL_ACT_MS);
     setInterval(function () { if (APP.live) refreshState({ quiet: true }); }, TUNING.POLL_STATE_MS);
   }
 

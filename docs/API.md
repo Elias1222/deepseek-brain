@@ -248,6 +248,19 @@ PATCH /api/memories/ep_abc
 
 ## 5. Debug / transfer
 
+### GET /api/events?since=
+
+Server-Sent Events 版的活动流。返回 `text/event-stream`，服务端每 700 ms 检查一次增量，有新事件就推一帧：
+
+```
+event: activity
+data: {"seq":12,"events":[{ "seq":12, "kind":"remember", "title":"…", … }]}
+```
+
+- `since` 沿用 `/api/activity` 的序号语义；断线重连时带上最后一次的 `seq` 即可，不会重复也不会漏。
+- 无新事件时只发 `: ping` 注释帧保活；客户端关闭时服务端自动清掉定时器。
+- 前端应优先用它，拿不到 `EventSource` 时退回 1 秒一次的 `/api/activity` 轮询。
+
 `GET /api/health` → `{ ok, version, dataDir, counts, backups:{count,newest}, vector:{enabled,provider,dim,indexed,warning}, warnings }`
 `GET /api/export.json` → full JSON archive · `GET /api/snapshot.md` → portable Markdown memory档案.
 
