@@ -436,7 +436,7 @@ DEEPSEEK_BRAIN_DIR=/tmp/brain node tools/demo.mjs   # 用临时数据目录，�
 | `test/memory.test.js` | 落盘/重启后记忆存活、观察闸门、recall、软删除、衰减清理、睡眠巩固、`apiState` 契约、演示数据、prompt 块、配置夹取 |
 | `test/activity.test.js` | 活动流：seq 单调、payload 不能伪造 `seq/kind`、未知 kind 回退、环形缓冲上限、`since()` 只返回增量 |
 | `test/server.test.js` | 全端点、CORS/预检、静态资源、路径穿越拒绝、坏 JSON 结构化报错、`salience` 派生、时间旅行、`forgetInDays` 预报、`POST /api/recall` |
-| `test/plugin.test.js` | cordis 契约、14 个工具 schema 只使用 DSH 支持的 JSON Schema 子集、端到端工具调用、`session/event` 捕获、prompt 注入 |
+| `test/plugin.test.js` | cordis 契约、15 个工具 schema 只使用 DSH 支持的 JSON Schema 子集、端到端工具调用、`session/event` 捕获、prompt 注入 |
 | `test/frontend.test.js` | 两个页面无远程依赖、内联脚本可编译、3D 页引用 vendor + `api/state` + 五层名称、`dist` 单文件把 three.js 内联且无外链 |
 
 调试入口：
@@ -472,7 +472,7 @@ deepseek-brain/
 ├── cordis.patch.yml          # DSH bundle 插入声明
 ├── package.json              # main: lib/index.js, dsh.bundle.patch
 ├── lib/
-│   ├── index.js              # 插件入口：14 个工具 + prompt 注入 + 事件捕获 + Web 挂载 + 自主遗忘定时器
+│   ├── index.js              # 插件入口：15 个工具 + prompt 注入 + 事件捕获 + Web 挂载 + 自主遗忘定时器
 │   ├── memory.js             # MemorySystem：五层编排、配置、状态、prompt 块、演示数据、遗忘预报
 │   ├── store.js              # 原子写、备份轮转、损坏恢复
 │   ├── sensory.js            # 感觉缓冲 + 实体抽取 + 注意闸门
