@@ -5,6 +5,14 @@
 > 给 DSH 装一颗持久、可查、可操作的生物大脑；再用同一份数据，把它做成一台能观测的仪器。
 
 
+## 1.2 增量
+
+- **真皮层网格**：皮层换成 CC BY 4.0 的 MRI 重建表面（59,342 三角），程序化半球保留为回退；单文件从 872 KB 涨到约 1.27 MB。
+- **指代消解两级**：同句先行词全权重；跨句只在「唯一候选 + 性别证据」时绑定，否则上报 `unbound.reason`（`no-candidate` / `no-gender-evidence` / `ambiguous`）。
+- **时间短语**：`parseWhen()` 支持相对日、周几、月界、显式日期、中文钟点，以及 `N 天/周/月/小时后`、`下下周X`；解析不出返回 `null`，绝不用 now 冒充。
+
+署名：皮层网格来自 Thomas Habets 的 *brain* 项目（https://github.com/ThomasHabets/brain），数据部分 **CC BY 4.0**；`tools/fetch-brain-mesh.mjs` 与 `tools/bake-brain-mesh.mjs` 是可复现的获取与烘焙脚本。
+
 ## 零、1.1 增量（相对 1.0）
 
 三件事，都在「记忆质量」这条主线上。

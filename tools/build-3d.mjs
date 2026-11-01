@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pagePath = path.join(root, 'web', 'brain-3d.html');
 const vendorPath = path.join(root, 'web', 'vendor', 'three.global.min.js');
+const meshPath = path.join(root, 'web', 'brain-mesh.js');
+const MESH_TAG = /<script\b[^>]*src=["'][^"']*brain-mesh\.js["'][^>]*>\s*<\/script>/i;
 const outDir = path.join(root, 'dist');
 const outPath = path.join(outDir, 'deepseek-brain-3d.html');
 
@@ -40,7 +42,11 @@ if (process.argv.includes('--check')) {
 }
 
 const three = fs.readFileSync(vendorPath, 'utf8').replace(/<\/script/gi, '<\\/script');
-const standalone = html.replace(SCRIPT_TAG, () => `<script>\n${three}\n</script>`);
+let standalone = html.replace(SCRIPT_TAG, () => `<script>\n${three}\n</script>`);
+if (fs.existsSync(meshPath) && MESH_TAG.test(standalone)) {
+  const mesh = fs.readFileSync(meshPath, 'utf8').replace(/<\/script/gi, '<\\/script');
+  standalone = standalone.replace(MESH_TAG, () => `<script>\n${mesh}\n</script>`);
+}
 fs.mkdirSync(outDir, { recursive: true });
 fs.writeFileSync(outPath, standalone);
 
