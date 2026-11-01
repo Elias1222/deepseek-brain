@@ -1205,10 +1205,14 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
       var fil = Math.max(0, nx * R.x + ny * R.y + nz * R.z);
       var crest = 0.30 + 0.70 * bumpArr[j];
       var ao = 1 - 0.94 * sulArr[j];
-      var t2 = clamp(0.010 + (0.50 * Math.pow(lam, 2.2) + 0.12 * fil) * crest * ao, 0, 0.80);
+      /* 脑回顶的一线高光：只给「不在沟里 + 正对主光 + 隆起」的顶点加，
+         所以亮的是回冠，不是整片 cortex。 */
+      var crownD = clamp(1 - 2.2 * sulArr[j], 0, 1);
+      var crown = Math.pow(crownD, 1.5) * Math.pow(lam, 2.4) * (0.55 + 0.45 * bumpArr[j]);
+      var t2 = clamp(0.010 + (0.50 * Math.pow(lam, 2.2) + 0.12 * fil) * crest * ao + 0.34 * crown, 0, 0.92);
       c.copy(COL_DEEP).lerp(COL_BONE, t2);
       /* shadows read cool, crests read warm bone — the specimen is not neutral grey */
-      var warm = 0.10 * t2;
+      var warm = 0.10 * t2 + 0.18 * crown;
       c.r = clamp(c.r + warm * 0.55, 0, 1);
       c.g = clamp(c.g + warm * 0.30, 0, 1);
       c.b = clamp(c.b - warm * 0.18, 0, 1);
