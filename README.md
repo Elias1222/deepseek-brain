@@ -333,6 +333,7 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 | 顶栏 `事件序号`、观测条脉冲 | `GET /api/activity?since=` 的增量：Agent 每次检索/写入/遗忘都在标本上打出一次脉冲 |
 | 检索台 | 真的 `POST /api/recall`，命中项按 `score` 亮起并连出白质纤维束 |
 | 「睡眠 / 衰减 / 遗忘」压印按钮 | 真的 `POST /api/sleep`、`/api/decay`、`/api/forget`，迁移与归档在标本上留下路径与残影 |
+| 归档环里的往返 | `forget` / `decay` 让 engram 缩着飞向底板外环（归档去向）；`restore` 让它沿同一路径从环里长回来，`undo`（撤销取回）再反向飞出去——轨迹都来自活动流的真实事件 |
 
 **三种模式**：`观测`（全景标本）、`目镜`（选中单条记忆的切片）、`剖面`（切开半球看深部结构）。
 

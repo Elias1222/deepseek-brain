@@ -3156,6 +3156,33 @@
       }
       toast(prefix + 'forget · ' + truncate(ev.title || ev.id || '', 24));
       setTimeout(function () { refreshState({ quiet: true }); }, 900);
+    } else if (kind === 'restore' || kind === 'archive') {
+      /* restore：从归档环飞回它自己的槽位；archive(undo)：反向飞回归档环 */
+      var home = ev.layer && ev.id ? regionPosition(ev.layer, ev.id) : null;
+      var theta = ev.id ? slotOf(ev.id).theta * 0.85 : 0;
+      var ringAt = archivePoint(theta);
+      var col = new THREE.Color(REGION[ev.layer] ? REGION[ev.layer].color : '#e6e0d2');
+      var outward = kind === 'restore';
+      toast(prefix + (outward ? 'restore · ' : 'archive · ') + truncate(ev.title || ev.id || '', 24));
+      if (outward) {
+        spawnPulse([ringAt.clone(), ringAt.clone()], col, 0.06, 0.34, 0);
+        /* 先用一条细尾迹标出「环 → 槽位」的路径，再让 engram 沿它长回来 */
+        if (home) spawnPulse(curvePoints(ringAt, home, 0.22, 22), col, 0.04, 1.30, 0);
+        refreshState({ quiet: true }).then(function () {
+          var rec = APP.model && APP.model.byId[ev.id];
+          if (rec) {
+            APP.moving.push({ rec: rec, t: 0, dur: 1.35, from: ringAt, to: rec.pos.clone(), grow: true });
+            flashEngram(ev.id);
+          }
+        });
+      } else {
+        var recNow = APP.model && APP.model.byId[ev.id];
+        if (recNow) {
+          APP.moving.push({ rec: recNow, t: 0, dur: 0.95, from: recNow.pos.clone(), to: ringAt, fade: true });
+        }
+        spawnPulse([ringAt.clone(), ringAt.clone()], col, 0.05, 0.3, 0.85);
+        setTimeout(function () { refreshState({ quiet: true }); }, 900);
+      }
     } else if (kind === 'consolidate') {
       var moved = animateMigration(ev);
       renderReport('<b>巩固（活动流）</b> · migrated <b>' + num(ev.migrated, 0) + '</b> · 画面移动 <b>' + moved +
@@ -3350,6 +3377,9 @@
       p.y += Math.sin(Math.PI * u) * (mv.fade ? -0.05 : 0.16);
       if (mv.fade) {
         placeEngram(mv.rec, p, Math.max(0.0001, (1 - e) * (mv.scale || 1)), 1, 0);
+      } else if (mv.grow) {
+        /* 取回：从归档环里长回来，越大越实 */
+        placeEngram(mv.rec, p, Math.max(0.0001, e * (mv.scale || 1)), 0, 0.35 * (1 - e));
       } else {
         placeEngram(mv.rec, p, lerp(1, mv.scale || 1, e), 0, APP.selected === mv.rec.id ? 0.85 : 0);
       }
