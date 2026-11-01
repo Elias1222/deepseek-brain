@@ -915,10 +915,14 @@
      （额极收窄、颞叶外凸、枕极圆钝），沟回位移再叠在它上面。            */
   /* [cx,cy,cz, rx,ry,rz, mirror?] — 单位球空间里的四叶，颞叶按 side 镜像 */
   var LOBE_C = [
-    [0.00, 0.06, 0.50, 0.86, 0.84, 0.80, 0],   /* 额叶：前下方略收 */
+    [0.00, 0.06, 0.50, 0.86, 0.84, 0.80, 0],   /* 额叶主体 */
     [0.00, 0.26, -0.20, 0.92, 0.92, 0.72, 0],  /* 顶叶：顶点抬高 */
-    [0.00, -0.06, -0.68, 0.78, 0.64, 0.50, 0], /* 枕叶：圆钝 */
-    [-0.66, -0.30, 0.10, 0.50, 0.40, 0.72, 1]  /* 颞叶：外凸但不臃肿 */
+    [0.00, -0.06, -0.68, 0.78, 0.64, 0.50, 0], /* 枕叶主体 */
+    [-0.66, -0.30, 0.10, 0.50, 0.40, 0.72, 1], /* 颞叶：外凸但不臃肿 */
+    /* 三个极部：更小的半径 + 更靠前/后，靠并集的圆角把主体收成锥形 */
+    [0.00, -0.02, 0.88, 0.46, 0.42, 0.30, 0],  /* 额极：窄、略低，压出眉弓下的收口 */
+    [-0.56, -0.34, 0.66, 0.33, 0.27, 0.28, 1], /* 颞极：向前下方探出的钩 */
+    [0.00, -0.02, -1.00, 0.36, 0.30, 0.24, 0]  /* 枕极：收成一小段锥 */
   ];
 
   function lobeField(x, y, z, side) {
@@ -931,7 +935,7 @@
       var dz = (z - L[2]) / L[5];
       var v = 1 - (dx * dx + dy * dy + dz * dz);
       /* polynomial smooth-max：叶与叶之间是圆角过渡，不是硬边 */
-      var k = 0.14;
+      var k = 0.115;
       var h = clamp(0.5 + 0.5 * (v - best) / k, 0, 1);
       best = lerp(best, v, h) + k * h * (1 - h) * 0.5;
     }
@@ -1090,7 +1094,10 @@
     var x = side * mx * lobe * disp * BRAIN.AX * 0.92;
     var y = pyFlat * lobe * disp * BRAIN.AY * 0.88 + 0.05 * smoothstep(0.4, 1.0, -pz);
     var z = pz * lobe * disp * BRAIN.AZ;
-    x *= 1 - 0.10 * smoothstep(0.45, 1.0, pz);
+    /* 颅顶弧线：中段最高，额极与枕极都往下沉，避免两头是等高的圆球面 */
+    y -= 0.125 * smoothstep(0.18, 0.98, Math.abs(pz)) * lobe * BRAIN.AY * 0.88;
+    /* 极部再收一点宽度，从上方看是卵形而不是跑道形 */
+    x *= 1 - 0.13 * smoothstep(0.34, 1.0, Math.abs(pz));
     return { x: x, y: y, z: z, sul: sul, bump: bump, shade: clamp(0.20 + 0.95 * bump * (1 - 0.85 * sul) + 0.10 * warpB, 0, 1) };
   }
 
@@ -1619,7 +1626,7 @@
     ].join(String.fromCharCode(10))
   });
 
-  var sectionPlane = new THREE.Mesh(new THREE.PlaneGeometry(BRAIN.AZ * 2.06, BRAIN.AY * 2.02), sectionMat);
+  var sectionPlane = new THREE.Mesh(new THREE.PlaneGeometry(BRAIN.AZ * 2.12, BRAIN.AY * 1.98), sectionMat);
   sectionPlane.rotation.y = Math.PI / 2;
   sectionPlane.visible = false;
   sectionPlane.renderOrder = 1;
