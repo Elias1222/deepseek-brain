@@ -339,6 +339,10 @@
 .stageGraph .delta i { font-style: normal; color: #c8482e; }
 .stageGraph .delta b { font-weight: 500; color: var(--paper-3, #b9b3a4); }
 @media (max-width: 900px) { .stageGraph { display: none; } }
+.stageGraph svg .hit { pointer-events: auto; cursor: crosshair; }
+.stageGraph .hov { font: 9px/1.5 var(--mono); color: var(--paper-2, #cfc9ba); margin-top: 2px;
+  min-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stageGraph .hov b { font-weight: 500; color: #e0846a; }
 </style>
 </head>
 <body>
@@ -1898,11 +1902,14 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     var heatK = 1 + 0.30 * (APP.heat && rec.layer in APP.heat ? heatNorm(rec.layer) : 0) +
       0.85 * heatKeyNorm(rec.id);
     N.glow.setX(rec.inst, clamp((0.08 + 0.98 * rec.salience) * heatK, 0, 1.6));
-    /* 硬边：选中 0.85；否则由「上一次检索有多像」给一点轮廓光 */
-    N.hi.setX(rec.inst, hi == null
-      ? (APP.selected === rec.id ? 0.85 : 0.62 * relOf(rec.id))
-      : hi);
-    N.dim.setX(rec.inst, dim == null ? ((APP.selected && APP.selected !== rec.id) ? 1 : 0) : dim);
+    /* 硬边：悬停 > 选中 > 相关度 */
+    var hovered = APP.hoverId === rec.id;
+    var dimmed = APP.hoverId && !hovered;
+    N.hi.setX(rec.inst, hovered ? 1
+      : (hi != null ? hi
+        : (APP.selected === rec.id ? 0.85 : 0.62 * relOf(rec.id))));
+    N.dim.setX(rec.inst, dimmed ? Math.max(dim == null ? 0 : dim, 0.92)
+      : (dim == null ? ((APP.selected && APP.selected !== rec.id) ? 1 : 0) : dim));
   }
 
   function rebuildEngrams() {
@@ -3381,7 +3388,7 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
       at: Date.now(),
       q: text,
       hits: (hits || []).map(function (h) {
-        return { id: h.id, layer: h.layer, score: num(h.score, 0) };
+        return { id: h.id, layer: h.layer, score: num(h.score, 0), title: h.title || '' };
       }),
     });
     if (APP.queries.length > HIST_MAX) APP.queries.length = HIST_MAX;
@@ -3504,6 +3511,8 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
       var rr = 3 + 5.5 * nd.score;
       parts.push('<circle cx="' + nd.x.toFixed(1) + '" cy="' + nd.y.toFixed(1) + '" r="' + rr.toFixed(2) +
         '" fill="' + nd.col + '" fill-opacity="' + (0.55 + 0.45 * nd.score).toFixed(2) + '"/>');
+      parts.push('<circle class="hit" data-id="' + escapeHTML(nd.id) + '" cx="' + nd.x.toFixed(1) + '" cy="' + nd.y.toFixed(1) +
+        '" r="' + Math.max(7, rr + 3).toFixed(2) + '" fill="transparent" pointer-events="auto"/>');
       if (nd.isNew) {
         parts.push('<circle cx="' + nd.x.toFixed(1) + '" cy="' + nd.y.toFixed(1) + '" r="' + (rr + 3).toFixed(2) +
           '" fill="none" stroke="' + nd.col + '" stroke-opacity=".75" stroke-width="1" stroke-dasharray="2 2"/>');
@@ -3543,6 +3552,41 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     stage.appendChild(box);
   }
 
+  /* 悬停联动：图上一点 ↔ 脑里一枚。悬停时把那枚顶到最亮、其余压暗。 */
+  APP.hoverId = null;
+  function setHoverEngram(id) {
+    if (APP.hoverId === id) return;
+    APP.hoverId = id || null;
+    allEngrams(APP.model).forEach(function (rec) {
+      if (rec.inst == null || rec.ghost) return;
+      placeEngram(rec, null, 1, null, null);
+    });
+    var el = document.getElementById('graphHover');
+    if (!el) return;
+    if (!APP.hoverId) { el.innerHTML = ''; return; }
+    var entry = APP.queries[APP.graphIdx || 0];
+    var hit = null;
+    if (entry) (entry.hits || []).forEach(function (h) { if (h.id === APP.hoverId) hit = h; });
+    el.innerHTML = hit
+      ? ('<b>' + escapeHTML((REGION[hit.layer] || {}).label || hit.layer) + '</b> · ' +
+         escapeHTML(hit.title || hit.id) + ' · ' + num(hit.score, 0).toFixed(2))
+      : '';
+  }
+  function wireGraphHover() {
+    var host = document.getElementById('graphBox');
+    if (!host || host.__hwired) return;
+    host.__hwired = true;
+    host.addEventListener('mouseover', function (e) {
+      var el = e.target && e.target.closest ? e.target.closest('.hit') : null;
+      if (el) setHoverEngram(el.getAttribute('data-id'));
+    });
+    host.addEventListener('mouseout', function (e) {
+      var el = e.target && e.target.closest ? e.target.closest('.hit') : null;
+      if (el && !(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.hit'))) setHoverEngram(null);
+    });
+    host.addEventListener('mouseleave', function () { setHoverEngram(null); });
+  }
+
   function renderGraphPanel() {
     ensureStageGraph();
     var host = document.getElementById('graphBox');
@@ -3554,7 +3598,8 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     for (var i = (APP.graphIdx || 0) + 1; i < APP.queries.length; i++) {
       if (querySimilar(entry.q, APP.queries[i].q) >= 0.25) { prev = APP.queries[i]; break; }
     }
-    host.innerHTML = graphSVG(entry, prev) + graphDelta(entry, prev);
+    host.innerHTML = graphSVG(entry, prev) + graphDelta(entry, prev) + '<div class="hov" id="graphHover"></div>';
+    wireGraphHover();
   }
 
   function ensureHistoryPanel() {
