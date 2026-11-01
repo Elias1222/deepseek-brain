@@ -137,6 +137,7 @@ The brain's electrophysiology. In-memory ring buffer (default 240 events), monot
 - 持锁进程把每条活动事件追加到数据目录下的 `activity.jsonl`（JSON Lines，最多 400 行，超出后重写保留尾部）。
 - 只读实例不写这个文件；它在 `init()` 时把文件读进内存（`ActivityLog.hydrate`），并在每次 `GET /api/activity` 之前调用 `syncActivityFromDisk()` 追平，所以两个实例返回的 `seq`、`boot`、检索史一致。
 - 只读实例不改写 `stats.json` 里的 `boot`（那是持锁进程的世代），接管之后才重新 `stampBoot()` 并接上落盘钩子 `attachTail`。
+- `GET /api/events` 在只读实例上也会推送持有者的事件：每条连接每秒 `syncActivityFromDisk()` 一次，新增事件经 `ActivityLog.ingest()` 直接喂给该连接的订阅者（实测端到端 1–2 s）。
 
 ## 4. Write / edit / forget / consolidate
 
