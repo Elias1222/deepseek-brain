@@ -2482,16 +2482,19 @@
         });
       });
       var boot = res && res.boot ? String(res.boot) : '';
+      var bootCount = res && Number.isFinite(Number(res.bootCount)) ? Number(res.bootCount) : 0;
+      APP.bootCount = bootCount;
       var known = '';
       try { known = window.localStorage.getItem('brain3d.boot') || ''; } catch (e) { known = ''; }
       APP.boot = boot;
       APP.bootChanged = !!(boot && known && known !== boot);
       var bootEl = document.getElementById('histBoot');
       if (bootEl) {
+        var tag = boot + (bootCount > 1 ? ' · 第 ' + bootCount + ' 次启动' : '');
         if (!boot) bootEl.textContent = '最近 12 次 · 点击重放';
-        else if (!known) bootEl.textContent = '进程 ' + boot;
-        else if (known !== boot) bootEl.textContent = '新进程 ' + boot + ' · 历史已重置';
-        else bootEl.textContent = '进程 ' + boot;
+        else if (!known) bootEl.textContent = '进程 ' + tag;
+        else if (known !== boot) bootEl.textContent = '新进程 ' + tag + ' · 历史已重置';
+        else bootEl.textContent = '进程 ' + tag;
       }
       try { if (boot) window.localStorage.setItem('brain3d.boot', boot); } catch (e) {}
       if (!list.length) return;

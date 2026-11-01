@@ -340,6 +340,23 @@ test('pruneConflicts archives stale versions but keeps the newest one per slot',
   assert.equal(again.removed, 0, 'second pass is a no-op');
 });
 
+test('every process start stamps a new generation into stats.json', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-boot-'));
+  const first = await new MemorySystem({ dataDir: dir }).init();
+  assert.equal(first.stats.boot.count, 1);
+  assert.equal(first.stats.boot.previous, null);
+  const firstId = first.stats.boot.id;
+
+  const second = await new MemorySystem({ dataDir: dir }).init();
+  assert.equal(second.stats.boot.count, 2);
+  assert.equal(second.stats.boot.previous.count, 1);
+  assert.equal(second.stats.boot.previous.id, firstId);
+  assert.notEqual(second.stats.boot.id, firstId, 'a new process gets a new id');
+
+  const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'stats.json'), 'utf8'));
+  assert.equal(onDisk.boot.count, 2, 'the generation is persisted, not just in memory');
+});
+
 test('the archive is searchable and a forgotten memory can come back', async () => {
   const memory = await makeMemory().init();
 

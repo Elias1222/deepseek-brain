@@ -340,7 +340,7 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 | 检索史下方的时间轴 | 一根 `range` 把最近 12 次检索当成可拖的时间：拖到两帧之间就按权重插值出一次「中间检索」（`score × (1−f)` 与 `score × f` 取并集），聚光被锁在 `hold` 状态不自行熄灭；松手吸附到最近一格并重放那次的纤维束与聚光。读数写作 `50% · 支付流程 评审` |
 | 检索史顶部的节奏条 | 相邻查询的间隔先 `log1p(Δt/1s)` 压缩再累加成横坐标：连着追查的几次会挤成一簇，隔几分钟才想起一次的会被拉开——横轴不是等距时间，而是「节奏」。每根刻度的高度随命中数、颜色取首个命中的层色，当前项加粗；下方读数给出 `跨度 / 次数 / 最长停顿` |
 | 刷新后检索史还在 | 连上服务端时 `loadHistoryFromActivity()` 拉 `api/activity?since=0&limit=200`，把其中 `kind === "recall"` 的事件重建成 `{at, q, hits}` 填回 `APP.queries`（同一秒同一句去重、上限 12 条）。**边界**：活动流是进程内日志，所以这件事跨刷新、不跨服务重启 |
-| 进程世代标记 | `/api/activity` 多返回一个 `boot`（`ActivityLog` 构造时生成的 6 位短 id）。前端把它存在 `localStorage.brain3d.boot`，下次连上时比对：一致显示 `进程 xxxxxx`，不一致显示 `新进程 xxxxxx · 历史已重置`——「历史为空」不再是黑箱 |
+| 进程世代标记 | `ActivityLog` 构造时生成 6 位短 id，`MemorySystem.init()` 里的 `stampBoot()` 把它写进 `stats.json` 的 `boot: {id, count, since, previous}`（同一数据目录每启动一次 `count` +1），`/api/activity` 一起返回 `boot / bootCount / bootSince`。前端把 boot 存进 `localStorage.brain3d.boot`，下次连上时比对：一致显示 `进程 xxxxxx · 第 N 次启动`，不一致显示 `新进程 xxxxxx · 第 N 次启动 · 历史已重置` |
 | 「睡眠 / 衰减 / 遗忘」压印按钮 | 真的 `POST /api/sleep`、`/api/decay`、`/api/forget`，迁移与归档在标本上留下路径与残影 |
 | 归档环里的往返 | 底板外环按五层切成五段扇区（每段用该层染料，扇区中点常显「感觉 / 工作 / 情景 / 语义 / 程序」小字——标签方向跟着相机转，但半径固定在标本外圈，所以任何方位角下五个都在、互不遮挡），`forget` / `decay` 让 engram 缩着飞向**自己那一段**；`restore` 沿同一路径长回来，`undo` 再反向飞出去——落点由 `archiveAngle(layer, slot.u)` 决定，不是随机角度 |
 
