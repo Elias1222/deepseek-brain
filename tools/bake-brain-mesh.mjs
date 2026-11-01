@@ -235,13 +235,16 @@ for (let v = 0; v < allVerts; v++) {
   const ny = qnrm[v * 3 + 1] / 127;
   const nz = qnrm[v * 3 + 2] / 127;
   const conc = -(dx * nx + dy * ny + dz * nz) * 9; // >0 表示凹
-  const t2 = Math.max(0, Math.min(1, 0.55 - conc * 1.6));
-  const r = Math.round(38 + t2 * 190);
-  const g = Math.round(37 + t2 * 182);
-  const b = Math.round(40 + t2 * 165);
-  col[v * 3] = r;
-  col[v * 3 + 1] = g;
-  col[v * 3 + 2] = b;
+  /* 回冠高光：凸起的脑回顶额外提亮并偏暖，沟底则压暗偏冷——
+     近景靠这个拉出立体感，不靠再加密网格。 */
+  const crown = Math.max(0, Math.min(1, -conc * 1.25));
+  const t2 = Math.max(0, Math.min(1, 0.50 - conc * 1.7 + crown * 0.34));
+  const r = Math.round(36 + t2 * 188 + crown * 16);
+  const g = Math.round(35 + t2 * 180 + crown * 11);
+  const b = Math.round(39 + t2 * 164 + crown * 4);
+  col[v * 3] = Math.min(255, r);
+  col[v * 3 + 1] = Math.min(255, g);
+  col[v * 3 + 2] = Math.min(255, b);
 }
 
 /* 5) 打包：pos(Uint16 LE) + nrm(Int8) + col(Uint8) + idx(Uint32 LE) → gzip → base64 */

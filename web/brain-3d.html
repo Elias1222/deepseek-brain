@@ -1250,6 +1250,11 @@
      对比度也在这一步统一调（顶点色是按无光照烘焙的，套到标准材质上会被灯光抬亮）。 */
   var cortexLod = { level: null, cache: {}, meshes: [] };
   var CONTRAST = { gain: 1.34, bias: -0.02, scale: 0.52 };
+  (function readContrastParam() {
+    var q = new URLSearchParams(location.search).get("c");
+    var v = q === null ? NaN : parseFloat(q);
+    if (isFinite(v)) CONTRAST.gain = Math.max(0.4, Math.min(3, v));
+  })();
 
   function decodeCortex(bundle) {
     return new Promise(function (resolve, reject) {
@@ -1331,6 +1336,42 @@
   }
 
   window.__setCortexLod = function (level) { return setCortexLod(level, true); };
+  window.__setContrast = function (gain) {
+    var v = parseFloat(gain);
+    if (!isFinite(v)) return CONTRAST.gain;
+    CONTRAST.gain = Math.max(0.4, Math.min(3, v));
+    cortexLod.cache = {};
+    if (cortexLod.level) setCortexLod(cortexLod.level, true).catch(function () {});
+    return CONTRAST.gain;
+  };
+  window.__contrast = function () { return CONTRAST.gain; };
+  /* 面板滑杆：塞进左栏底部；拖动只更新数字，300 ms 后才真正重解码，避免狂解码 */
+  (function ensureContrastSlider() {
+    var host = document.querySelector(".board") || document.body;
+    var box = document.createElement("div");
+    box.style.cssText = "width:calc(100% - 24px);margin:8px 12px 16px;padding:8px 0 0;border-top:1px solid #23241f;display:flex;align-items:center;gap:6px;box-sizing:border-box;font:9px/1.4 ui-monospace,monospace;color:#7c7a70;letter-spacing:.06em";
+    var lab = document.createElement("span");
+    lab.textContent = "皮层对比";
+    var rg = document.createElement("input");
+    rg.type = "range";
+    rg.min = "0.60"; rg.max = "2.40"; rg.step = "0.02";
+    rg.value = String(CONTRAST.gain);
+    rg.style.cssText = "flex:1 1 0;min-width:0;accent-color:#c8482e;height:12px";
+    var val = document.createElement("b");
+    val.textContent = CONTRAST.gain.toFixed(2);
+    val.style.cssText = "flex:none;font-weight:500;color:#c9a63f;text-align:right";
+    var timer = 0;
+    rg.addEventListener("input", function () {
+      val.textContent = Number(rg.value).toFixed(2);
+      clearTimeout(timer);
+      timer = setTimeout(function () { window.__setContrast(rg.value); }, 300);
+    });
+    box.appendChild(lab);
+    box.appendChild(rg);
+    box.appendChild(val);
+    host.appendChild(box);
+    window.__contrastSlider = rg;
+  })();
   window.__cortexLod = function () { return cortexLod.level; };
 
   (function loadRealCortex() {
