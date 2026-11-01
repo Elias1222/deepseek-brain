@@ -208,6 +208,9 @@ curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/remember' -H 'content-
 # 3) 看现在哪条在生效、哪条被修正过
 curl -s 'http://127.0.0.1:7799/deepseek-brain/api/conflicts' | jq '.items[] | {object, current}'
 
+# 3b) 看一条记忆的版本链：v1 是入库时那句话，之后每改一次就压一版
+curl -s 'http://127.0.0.1:7799/deepseek-brain/api/memories/ep_abc123' | jq '.versions[] | {v, current, fields}'
+
 # 4) 发现新说法才是错的：把旧的放回生效位（新的降级为 [已修正]，两条都留着）
 curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/conflicts/sem_old123/restore'
 
