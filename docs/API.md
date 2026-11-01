@@ -123,6 +123,20 @@ The brain's electrophysiology. In-memory ring buffer (default 240 events), monot
 | `decay` | `sessionId, count, ids[]` | weak engrams fade out in sequence |
 | `import` | `sessionId, episodic, semantic, procedural, skipped` | a batch of engrams arrives from another brain (`imported` tag) |
 
+### `GET /api/export.json` 的 `activity` 段
+
+```jsonc
+"activity": {
+  "boot": "zstbzr",        // 进程世代
+  "generation": 7,          // 第几次启动（stats.boot.count）
+  "since": "2026-11-01T…",  // 本次启动时间
+  "seq": 12,                // 事件总数
+  "events": [ { "seq": 3, "at": "…", "kind": "recall", "detail": "「张伟 会议」 · 2 命中 · 9 ms" } ]
+}
+```
+
+这是一段**只读上下文**：说明这个大脑最近在查什么，不参与 `POST /api/import` 的合并（导入只认 `episodic / semantic / procedural`）。Markdown 快照末尾也有同样内容，渲染成一张表。
+
 ### 只读模式
 
 当数据目录被另一个活进程锁住（`brain.lock` 里的 pid 仍在），本实例以只读启动：
