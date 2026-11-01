@@ -131,6 +131,13 @@ The brain's electrophysiology. In-memory ring buffer (default 240 events), monot
 - 任何非 GET 请求（remember / forget / sleep / decay / recall… 的写路径）→ `503 { ok:false, error:{ code:"read-only", message:"data dir is locked by pid N — this instance is read-only" } }`；
 - 读接口照常返回数据，方便对照；
 - 只读不是永久状态：后台每 `handoverMs` 试一次锁，前任退出后自动升级为可写（`/api/health` 的 `readOnly` 会变回 `false`）。
+
+### 活动流的落盘与跨实例对齐
+
+- 持锁进程把每条活动事件追加到数据目录下的 `activity.jsonl`（JSON Lines，最多 400 行，超出后重写保留尾部）。
+- 只读实例不写这个文件；它在 `init()` 时把文件读进内存（`ActivityLog.hydrate`），并在每次 `GET /api/activity` 之前调用 `syncActivityFromDisk()` 追平，所以两个实例返回的 `seq`、`boot`、检索史一致。
+- 只读实例不改写 `stats.json` 里的 `boot`（那是持锁进程的世代），接管之后才重新 `stampBoot()` 并接上落盘钩子 `attachTail`。
+
 ## 4. Write / edit / forget / consolidate
 
 ```jsonc

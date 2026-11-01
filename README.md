@@ -342,6 +342,7 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 | 刷新后检索史还在 | 连上服务端时 `loadHistoryFromActivity()` 拉 `api/activity?since=0&limit=200`，把其中 `kind === "recall"` 的事件重建成 `{at, q, hits}` 填回 `APP.queries`（同一秒同一句去重、上限 12 条）。**边界**：活动流是进程内日志，所以这件事跨刷新、不跨服务重启 |
 | 进程世代标记 | `ActivityLog` 构造时生成 6 位短 id，`MemorySystem.init()` 里的 `stampBoot()` 把它写进 `stats.json` 的 `boot: {id, count, since, previous}`（同一数据目录每启动一次 `count` +1），`/api/activity` 一起返回 `boot / bootCount / bootSince`。前端把 boot 存进 `localStorage.brain3d.boot`，下次连上时比对：一致显示 `进程 xxxxxx · 第 N 次启动`，不一致显示 `新进程 xxxxxx · 第 N 次启动 · 历史已重置` |
 | 只读横幅 | `/api/state` 带 `readOnly` 与 `lock`（持有者 pid）；只读时顶栏一直亮着 `只读 · 数据目录被 pid N 占用`，持有者退出、`handoverMs` 到点自动接管后自动消失。写请求期间会拿到 503 `read-only`，不会假装成功 |
+| 两个实例共用一条活动流 | 持锁进程把每条事件追加到 `activity.jsonl`（上限 400 行）；只读实例启动时把它读进内存，之后每次 `GET /api/activity` 再追平一次，所以两个窗口的 `summary`/`seq`/检索史一致，世代 id 也读同一份 `stats.json`。只读实例自己不写盘，接管后才接上落盘钩子 |
 | 数据目录独占 | `Store.acquireLock()` 用 `wx` 在数据目录写 `brain.lock`（pid / 时间 / 主机名）。抢不到锁先**排队**（`lockWaitMs`，默认 8 s），等到就重读磁盘再继续；等不到则以只读启动——`/api/health` 报 `readOnly: true` 与持有者 pid，写请求回 `503 read-only`，前端提示「只读：数据目录被另一个进程占用」。只读实例还有后台**接管**轮询（`handoverMs`，默认 20 s）：前任进程一退出，它自己升级成可写、重读磁盘、记一次新世代。陈锁（pid 已死或超过 6 小时）会被直接接管 |
 | 「睡眠 / 衰减 / 遗忘」压印按钮 | 真的 `POST /api/sleep`、`/api/decay`、`/api/forget`，迁移与归档在标本上留下路径与残影 |
 | 归档环里的往返 | 底板外环按五层切成五段扇区（每段用该层染料，扇区中点常显「感觉 / 工作 / 情景 / 语义 / 程序」小字——标签方向跟着相机转，但半径固定在标本外圈，所以任何方位角下五个都在、互不遮挡），`forget` / `decay` 让 engram 缩着飞向**自己那一段**；`restore` 沿同一路径长回来，`undo` 再反向飞出去——落点由 `archiveAngle(layer, slot.u)` 决定，不是随机角度 |
