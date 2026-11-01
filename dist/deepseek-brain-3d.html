@@ -340,6 +340,12 @@
 .stageGraph .delta b { font-weight: 500; color: var(--paper-3, #b9b3a4); }
 @media (max-width: 900px) { .stageGraph { display: none; } }
 .stageGraph svg .hit { pointer-events: auto; cursor: crosshair; }
+.hist { position: sticky; bottom: 0; z-index: 2; background: #0a0b0d; padding-top: 8px; }
+.hist #histList { max-height: 88px; overflow-y: auto; overscroll-behavior: contain; }
+.hist .rhythm { margin-top: 6px; }
+.hist .rhythm svg { display: block; width: 100%; height: auto; }
+.hist .rhythm .cap { font: 9px/1.5 var(--mono); color: var(--dim, #7c7a70); margin-top: 2px; }
+.hist .rhythm .cap b { font-weight: 500; color: var(--paper-3, #b9b3a4); }
 .hist .scrub { margin-top: 6px; display: flex; align-items: center; gap: 8px; }
 .hist .scrub input[type=range] { flex: 1; -webkit-appearance: none; appearance: none;
   height: 2px; background: rgba(230,224,210,.16); outline: none; cursor: ew-resize; }
@@ -3408,6 +3414,7 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     if (APP.queries.length > HIST_MAX) APP.queries.length = HIST_MAX;
     APP.graphIdx = 0;
     renderHistory();
+    renderRhythm();
     var rr = document.getElementById('histRange');
     if (rr) { rr.max = String(Math.max(0, APP.queries.length - 1)); }
     renderGraphPanel();
@@ -3463,6 +3470,7 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
       li.classList.add('on');
       APP.graphIdx = Number(li.getAttribute('data-hist')) || 0;
       renderGraphPanel();
+      renderRhythm();
       runRecallPulses(it.hits, 0.85);
       setStatus('重放检索 · ' + truncate(it.q, 18), it.hits.length + ' 命中', '');
     });
@@ -3653,6 +3661,68 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
       focusRing.visible = true;
     }
   }
+  function rhythmSVG() {
+    var qs = APP.queries.slice().reverse(); /* 时间正序 */
+    if (!qs.length) return '<span class="cap">还没有检索。</span>';
+    var W = 268, H = 34, padL = 4, padR = 4, baseY = 22;
+    var t0 = qs[0].at, t1 = qs[qs.length - 1].at;
+    var span = Math.max(1, t1 - t0);
+    /* 相邻间隔先压缩再累加成「节奏坐标」：一秒的间隔与一分钟的间隔不会差 60 倍宽 */
+    var steps = [], acc = 0;
+    for (var i = 1; i < qs.length; i++) {
+      acc += Math.log1p((qs[i].at - qs[i - 1].at) / 1000);
+      steps.push(acc);
+    }
+    var total = steps.length ? steps[steps.length - 1] : 0;
+    var xs = [0];
+    steps.forEach(function (s) { xs.push(total > 0 ? s / total : (xs.length / Math.max(1, qs.length - 1))); });
+    if (!total) {
+      xs = qs.map(function (_, i) { return qs.length === 1 ? 0.5 : i / (qs.length - 1); });
+    }
+    var parts = [];
+    parts.push('<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="检索节奏">');
+    parts.push('<line x1="' + padL + '" y1="' + baseY + '" x2="' + (W - padR) + '" y2="' + baseY +
+      '" stroke="rgba(230,224,210,.16)" stroke-width="1"/>');
+    qs.forEach(function (q, i) {
+      var x = padL + xs[i] * (W - padL - padR);
+      var col = REGION[(q.hits[0] || {}).layer] ? REGION[q.hits[0].layer].color : '#e6e0d2';
+      var h = 6 + Math.min(10, (q.hits || []).length * 3);
+      var idx = APP.queries.length - 1 - i; /* 还原成 queries 里的下标（0 = 最新） */
+      var on = idx === (APP.graphIdx || 0);
+      parts.push('<line x1="' + x.toFixed(1) + '" y1="' + (baseY - h) + '" x2="' + x.toFixed(1) + '" y2="' + baseY +
+        '" stroke="' + col + '" stroke-opacity="' + (on ? 1 : 0.55).toFixed(2) + '" stroke-width="' + (on ? 2 : 1.2) + '"/>');
+      parts.push('<circle cx="' + x.toFixed(1) + '" cy="' + baseY + '" r="' + (on ? 2.4 : 1.6) +
+        '" fill="' + col + '" fill-opacity="' + (on ? 1 : 0.6).toFixed(2) + '"/>');
+    });
+    parts.push('</svg>');
+
+    /* 读数：跨度 + 最密的一段 */
+    var gap = 0, gapAt = 0;
+    for (var j = 1; j < qs.length; j++) {
+      var d = qs[j].at - qs[j - 1].at;
+      if (d > gap) { gap = d; gapAt = j; }
+    }
+    function hhmm(ms) {
+      var m = Math.round(ms / 60000);
+      if (m < 1) return Math.round(ms / 1000) + ' s';
+      if (m < 60) return m + ' min';
+      return (m / 60).toFixed(1) + ' h';
+    }
+    var cap = '跨度 <b>' + hhmm(span) + '</b> · ' + qs.length + ' 次' +
+      (gap > 0 ? ' · 最长停顿 <b>' + hhmm(gap) + '</b>' : '');
+    parts.push('<div class="cap">' + cap + '</div>');
+    return parts.join('');
+  }
+  window.__rhythmRedraw = function () { renderRhythm(); };
+  /* 调试钩子：一次性重绘左栏时间轴三件套（历史行 / 节奏条 / 关联图） */
+  window.__uiRedraw = function () { renderHistory(); renderRhythm(); renderGraphPanel(); };
+
+  function renderRhythm() {
+    var host = document.getElementById('rhythmBox');
+    if (!host) return;
+    host.innerHTML = rhythmSVG();
+  }
+
   function wireScrub() {
     var r = document.getElementById('histRange');
     if (!r || r.__wired) return;
@@ -3680,8 +3750,9 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     var box = document.createElement('section');
     box.className = 'hist';
     box.innerHTML = '<div class="hist-hd"><b>检索史</b><span>最近 12 次 · 点击重放</span></div>' +
-      '<ol id="histList"></ol>' +
-      '<div class="scrub"><input type="range" id="histRange" min="0" max="11" step="0.02" value="0" aria-label="检索史时间轴"><span id="histPos">最近</span></div>';
+      '<div class="rhythm"><div id="rhythmBox"></div></div>' +
+      '<div class="scrub"><input type="range" id="histRange" min="0" max="11" step="0.02" value="0" aria-label="检索史时间轴"><span id="histPos">最近</span></div>' +
+      '<ol id="histList"></ol>';
     if (anchor && anchor.parentNode) {
       anchor.parentNode.insertBefore(box, anchor.nextSibling);
     } else if ($('boardSource') && $('boardSource').parentNode) {
@@ -3690,6 +3761,7 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     wireHistory();
     renderHistory();
     renderGraphPanel();
+    renderRhythm();
     wireScrub();
   }
 
