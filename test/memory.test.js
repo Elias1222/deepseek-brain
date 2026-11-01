@@ -353,6 +353,25 @@ test('a locked data dir makes the second system read-only instead of clobbering 
   assert.equal(fs.existsSync(path.join(dir, 'episodic.json')), false, 'nothing may be written while read-only');
 });
 
+test('a read-only instance takes over once the lock is released', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-hand-'));
+  /* 先伪造一个「另一个活进程」握着锁 */
+  fs.writeFileSync(path.join(dir, 'brain.lock'), JSON.stringify({ pid: process.ppid, at: Date.now(), host: 'other' }));
+  const sys = await new MemorySystem({ dataDir: dir, lockWaitMs: 0, handoverMs: 60 }).init();
+  assert.equal(sys.readOnly, true, 'locked by a foreign pid → read-only');
+
+  /* 对方退出，锁文件消失；后台接管轮询应该把它升级成可写 */
+  fs.rmSync(path.join(dir, 'brain.lock'), { force: true });
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  assert.equal(sys.readOnly, false, 'the watcher promotes us once the lock is free');
+  assert.ok(sys.warnings.some((w) => /handover/.test(w)), 'the takeover is recorded');
+
+  sys.remember({ layer: 'episodic', event: '接管之后的第一条记忆' });
+  const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'episodic.json'), 'utf8'));
+  assert.ok(onDisk.items.some((it) => it.event === '接管之后的第一条记忆'), 'after takeover writes land');
+  sys.stopHandoverWatch();
+});
+
 test('every process start stamps a new generation into stats.json', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-boot-'));
   const first = await new MemorySystem({ dataDir: dir }).init();

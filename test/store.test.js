@@ -79,3 +79,24 @@ test('a lock left behind by a dead pid is reclaimed', () => {
   assert.equal(holder.pid, process.pid, 'the lock file now names us');
   store.releaseLock();
 });
+
+test('waitForLock returns as soon as the holder lets go', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-wait-'));
+  const owner = new Store(dir);
+  const waiter = new Store(dir);
+  assert.equal(owner.acquireLock().ok, true);
+  setTimeout(() => owner.releaseLock(), 120);
+  const got = await waiter.waitForLock(Date.now(), { timeoutMs: 2000, intervalMs: 60 });
+  assert.equal(got.ok, true, 'the waiter should get the lock once it is free');
+  waiter.releaseLock();
+});
+
+test('waitForLock gives up when the holder never releases', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brain-wait-timeout-'));
+  fs.writeFileSync(path.join(dir, 'brain.lock'), JSON.stringify({ pid: process.ppid, at: Date.now(), host: 'x' }));
+  const waiter = new Store(dir);
+  const started = Date.now();
+  const got = await waiter.waitForLock(Date.now(), { timeoutMs: 300, intervalMs: 60 });
+  assert.equal(got.ok, false, 'a live foreign holder is never preempted');
+  assert.ok(Date.now() - started >= 250, 'it actually waited');
+});

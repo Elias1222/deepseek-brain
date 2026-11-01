@@ -129,7 +129,8 @@ The brain's electrophysiology. In-memory ring buffer (default 240 events), monot
 
 - `GET /api/health` → `{ ok:true, readOnly:true, lock:{ pid, at, host } }`；
 - 任何非 GET 请求（remember / forget / sleep / decay / recall… 的写路径）→ `503 { ok:false, error:{ code:"read-only", message:"data dir is locked by pid N — this instance is read-only" } }`；
-- 读接口照常返回数据，方便对照。
+- 读接口照常返回数据，方便对照；
+- 只读不是永久状态：后台每 `handoverMs` 试一次锁，前任退出后自动升级为可写（`/api/health` 的 `readOnly` 会变回 `false`）。
 ## 4. Write / edit / forget / consolidate
 
 ```jsonc
