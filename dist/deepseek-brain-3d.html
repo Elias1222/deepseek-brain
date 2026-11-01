@@ -94,7 +94,10 @@
   .lbl b{font-weight:400;color:var(--bone);font-family:var(--serif);font-size:11px;letter-spacing:.06em}
   .lbl i{font-style:normal;color:var(--bone-50);font-size:8.5px;letter-spacing:.12em}
   .lbl.hot b{color:var(--c)}
-  .lbl.ghost{color:var(--cin)}
+  .lbl.arc{opacity:.7;transform-origin:0 0;pointer-events:none}
+.lbl.arc b{font-size:9.5px;letter-spacing:.08em;color:var(--c);opacity:.82}
+.lbl.arc .dot{width:3px;height:3px}
+.lbl.ghost{color:var(--cin)}
   .lbl.ghost b{color:var(--cin);font-size:10px}
   .stage-vig{position:absolute;inset:0;pointer-events:none;z-index:2;
     background:radial-gradient(120% 92% at 50% 46%,rgba(7,8,10,0) 38%,rgba(7,8,10,.62) 100%)}
@@ -2217,6 +2220,18 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
     if (rec) LABELS[rec.layer].classList.add('hot');
   }
 
+  /* 归档环的扇区标签：一圈五个小字，标出「这一格收哪一层的记忆」 */
+  var ARC_LABELS = [];
+  ARC_ORDER.forEach(function (key) {
+    var el = document.createElement('div');
+    el.className = 'lbl arc';
+    el.style.setProperty('--c', REGION[key].color);
+    el.innerHTML = '<span class="dot"></span><span><b>' + REGION[key].label + '</b></span>';
+    el.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+    labelsEl.appendChild(el);
+    ARC_LABELS.push({ el: el, layer: key });
+  });
+
   var ghostTags = [];
   function rebuildGhostTags() {
     ghostTags.forEach(function (t) { if (t.el.parentNode) t.el.parentNode.removeChild(t.el); });
@@ -2255,6 +2270,29 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
       el.style.opacity = '1';
       el.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
     });
+    ARC_LABELS.forEach(function (item) {
+      var mid = arcStart(item.layer) + (ARC_SPAN - 0.12) * 0.5;
+      var p3 = archivePoint(mid).multiplyScalar(1 + 0.26 / TUNING.ARCHIVE_R);
+      _proj.copy(p3).project(camera);
+      if (_proj.z > 1) { item.el.style.opacity = '0'; return; }
+      var sx = (_proj.x * 0.5 + 0.5) * w, sy = (-_proj.y * 0.5 + 0.5) * h;
+      /* 扇区被脑体挡住时，把标签沿屏幕径向推到标本外圈，别压在沟回上 */
+      var cx = w * 0.5, cy = h * 0.52;
+      var dx = sx - cx, dy = sy - cy;
+      var dmin = Math.min(w, h) * 0.42;
+      var dcur = Math.sqrt(dx * dx + dy * dy) || 1;
+      if (dcur < dmin) {
+        var k = dmin / dcur;
+        sx = cx + dx * k; sy = cy + dy * k;
+      }
+      /* 左下角是图注区，别把标签压上去 */
+      if (sx < w * 0.40 && sy > h * 0.84) { item.el.style.opacity = '0'; return; }
+      sx = clamp(sx, 10, Math.max(10, w - 60));
+      sy = clamp(sy, 10, h - 12);
+      item.el.style.opacity = '0.72';
+      item.el.style.transform = 'translate(' + (sx - 26).toFixed(1) + 'px,' + (sy + 8).toFixed(1) + 'px)';
+    });
+
     ghostTags.forEach(function (t) {
       _proj.copy(t.rec.pos).project(camera);
       if (_proj.z > 1) { t.el.style.opacity = '0'; return; }
