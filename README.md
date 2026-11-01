@@ -332,6 +332,7 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 | 底板上的「时间切片」与转盘 | 拖动即 `GET /api/state?at=±Nd`，整具标本按那一时刻重新计算强度，随时可回到 `now` |
 | 顶栏 `事件序号`、观测条脉冲 | `GET /api/activity?since=` 的增量：Agent 每次检索/写入/遗忘都在标本上打出一次脉冲 |
 | 检索台 | 真的 `POST /api/recall`，命中项按 `score` 亮起并连出白质纤维束 |
+| 检索时的「聚光」 | `setFocus(hits)` 记下命中 id 与命中簇质心：2.6 s 内命中 engram 朝质心收 `0.50·sin(πt/T)`、非命中向外让开 `0.22` 并压暗，同时一圈 `LineLoop` 朝向相机亮灭。**只改显示位移，`slot u/v` 不动**——目镜里读到的永远是确定性寻址的槽位坐标 |
 | 「睡眠 / 衰减 / 遗忘」压印按钮 | 真的 `POST /api/sleep`、`/api/decay`、`/api/forget`，迁移与归档在标本上留下路径与残影 |
 | 归档环里的往返 | 底板外环按五层切成五段扇区（每段用该层染料，扇区中点常显「感觉 / 工作 / 情景 / 语义 / 程序」小字——标签方向跟着相机转，但半径固定在标本外圈，所以任何方位角下五个都在、互不遮挡），`forget` / `decay` 让 engram 缩着飞向**自己那一段**；`restore` 沿同一路径长回来，`undo` 再反向飞出去——落点由 `archiveAngle(layer, slot.u)` 决定，不是随机角度 |
 
