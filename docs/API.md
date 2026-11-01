@@ -6,7 +6,7 @@ MUST fall back to their built-in demo dataset and show a demo badge.
 
 - Static: `GET /deepseek-brain/` (dashboard), `/deepseek-brain/brain-3d.html`, `/deepseek-brain/vendor/*`.
 - JSON: `GET /api/state[?at=]`, `/api/activity[?since=]`, `/api/health`, `/api/export.json`, `/api/snapshot.md`;
-  `POST /api/recall`, `/api/remember`, `/api/forget`, `/api/sleep`, `/api/decay`, `/api/working/push`.
+  `POST /api/recall`, `/api/observe`, `/api/remember`, `/api/forget`, `/api/sleep`, `/api/decay`, `/api/working/push`.
 - Every response is UTF-8 JSON with `ok: true|false`; errors are `{ ok:false, error:{ code, message } }` with 4xx/5xx.
 - CORS `Access-Control-Allow-Origin: *`, `OPTIONS` → `204`, so a `file://` page may probe the host.
 
@@ -152,6 +152,50 @@ The brain's electrophysiology. In-memory ring buffer (default 240 events), monot
 - 只读实例不写这个文件；它在 `init()` 时把文件读进内存（`ActivityLog.hydrate`），并在每次 `GET /api/activity` 之前调用 `syncActivityFromDisk()` 追平，所以两个实例返回的 `seq`、`boot`、检索史一致。
 - 只读实例不改写 `stats.json` 里的 `boot`（那是持锁进程的世代），接管之后才重新 `stampBoot()` 并接上落盘钩子 `attachTail`。
 - `GET /api/events` 在只读实例上也会推送持有者的事件：每条连接每秒 `syncActivityFromDisk()` 一次，新增事件经 `ActivityLog.ingest()` 直接喂给该连接的订阅者（实测端到端 1–2 s）。
+
+## 3b. Observe — `POST /api/observe`
+
+Feed one user utterance in; the five layers do the rest. This is the same entry point the plugin uses
+for `session/event` messages, so the HTTP route is how a script or a test drives the brain the way a
+conversation would.
+
+```jsonc
+POST /api/observe
+{ "text": "我叫林夕，是一名产品设计师，我住在北京", "sessionId": "default" }
+// → { "ok": true, "kept": { "id": "ep_…", "layer": "episodic", "importance": 4 } | null,
+//      "topic": "产品设计师", "shelved": [], "facts": [ …semantic triples… ], "dropped": 0 }
+```
+
+What it does: (1) pushes the utterance into the sensory buffer as an entity-bearing trace, (2) pushes the
+detected topic onto the working-memory stack, (3) writes an episodic record only if the attention gate
+passes (`autoImportanceMin`, greetings / tiny questions are dropped), and (4) runs the extraction rules
+below into semantic and procedural memory.
+
+### 3b.1 Extraction rules
+
+Rules live in `lib/extract.js`. Each rule is a regex plus optional `capture` (which group is the object),
+`subjectCapture` (which group is the subject), `skipQuestion` (ignore interrogative sentences) and
+`object(match)` (custom object builder). A leading-context guard keeps third-party statements from being
+recorded as facts about the user: `李雪是老师` produces nothing, `张伟是同事` produces `张伟 → 身份 → 同事`.
+
+| id | relation | importance | example |
+| --- | --- | --- | --- |
+| `name` | 姓名 | 5 | `我叫林夕` → 用户 → 姓名 → 林夕 |
+| `job` | 职业 | 4 | `，是一名产品设计师` → 用户 → 职业 → 产品设计师 |
+| `home` | 居住地 | 4 | `我住在北京` |
+| `company` | 公司 | 4 | `我在字节工作` |
+| `age` | 年龄 | 3 | `我今年28岁` |
+| `birthday` | 生日 | 5 | `我的生日是三月七号` |
+| `like` / `dislike` | 喜欢 / 不喜欢 | 3 | `我喜欢黑咖啡` |
+| `pet` | 宠物 | 3 | `我养了一只橘猫` → 橘猫（量词不进宾语） |
+| `plan` | 计划 | 3 | `我打算下个月搬家` |
+| `person-role` | 身份 | 4 | `张伟是同事` |
+| `kin-name` | 姓名 | 4 | `我妈叫李雪` → 妈 → 姓名 → 李雪 |
+| `rule` | — (procedural) | 4 | `记住：回答先给结论` |
+
+Post-processing: `clean()` strips trailing particles (`的了吧呢啊…`), `accept()` rejects pronouns,
+one-token answers, ≥7-digit numbers and objects ending in `吗/呢/么`; interrogative sentences are skipped
+outright (except the procedural `rule` rule); a triple is never emitted twice from one sentence.
 
 ## 4. Write / edit / forget / consolidate
 

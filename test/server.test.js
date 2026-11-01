@@ -475,6 +475,20 @@ test('POST /api/reset needs an explicit confirm and then empties the brain', asy
 });
 
 
+test('observe turns one utterance into layers, facts and a topic', async () => {
+  await withServer(async ({ origin }) => {
+    const res = await post(origin, '/api/observe', { text: '我叫林夕，是一名产品设计师，我住在北京' });
+    assert.equal(res.status, 200);
+    assert.equal(res.json.kept.layer, 'episodic');
+    const triples = res.json.facts.map((f) => `${f.relation}:${f.object}`);
+    assert.deepEqual(triples, ['姓名:林夕', '职业:产品设计师', '居住地:北京']);
+    assert.ok(res.json.topic.length > 0);
+
+    const empty = await post(origin, '/api/observe', {});
+    assert.equal(empty.json.error.code, 'missing-text');
+  });
+});
+
 test('state carries the read-only flag so the UI can say it up front', async () => {
   await withServer(async ({ origin, memory }) => {
     const writable = await get(origin, '/api/state');
