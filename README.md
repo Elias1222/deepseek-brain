@@ -424,6 +424,9 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 - 沟底偏冷、回冠偏暖：`COL_DEEP` 从 `#1b1d1e` 抬到 `#26282b`，再按 `0.045·sul^1.8·(1−crown)` 给暗部加一点冷灰  （第一版给了 0.16，沟里直接亮成蓝血管，被自己否掉了）——暗部于是透得出结构，而不是一片死黑。- 简化：`tools/qem.mjs` 的**二次误差（quadric error）边折叠**——顶点聚类只作为对齐的中间步，真正的简化按「删掉这条边会带来多少体积误差」从小到大折叠，沟壁、脑回顶和平面因此被保住；折叠后再叠 5 轮拉普拉斯平滑收掉残留毛刺。
 - 分级 LOD：`web/brain-mesh.js` 90k 三角（默认档）/ `web/brain-mesh-low.js` 24k（低画质档与窄屏），加载时按 `QUALITY.low` 选择；两份都内联进单文件构建。
 
+- 对比度：解码时统一套 `CONTRAST = { gain: 1.34, bias: -0.02, scale: 0.52 }` 这条曲线——顶点色是按无光照烘焙的，直接喂给标准材质会发白。
+- 热切换：`setCortexLod(level)` 按 `pickLod()` 挑档（`QUALITY.low` 或 `innerWidth < 900` 用 24k 版），两档几何都缓存在 `cortexLod.cache` 里，切换只换 mesh、不重新解码；`resize` 去抖 260 ms 后自动重挑，也可用 `window.__setCortexLod("low"|"high")` 手动切。
+
 ### 真皮层网格（CC BY 4.0）
 
 皮层几何不再是程序化生成的近似，而是 **真实的 MRI 重建表面**：
