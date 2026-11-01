@@ -34,6 +34,15 @@ test('dashboard is a single self-contained file that reads the live API', () => 
   assert.ok(html.includes('deepseek-brain-export.json'), 'has a JSON export');
 });
 
+test('chronicle opens a revision drawer backed by the version chain', () => {
+  const html = read('web/dashboard.html');
+  assert.ok(html.includes('id="revDrawer"'), 'ships the drawer markup');
+  assert.ok(html.includes('api/memories/'), 'reads GET api/memories/:id');
+  assert.ok(html.includes('api/conflicts/'), 'restores semantic facts through the conflict endpoint');
+  assert.ok(html.includes('恢复此版本'), 'offers the restore action');
+  assert.ok(html.includes("method:'PATCH'") || html.includes("method: 'PATCH'"), 'restores episodic facts with PATCH');
+});
+
 test('3D page wires three.js + the API and names all five regions', () => {
   const html = read('web/brain-3d.html');
   assert.ok(html.length > 40_000);

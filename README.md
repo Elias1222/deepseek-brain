@@ -267,7 +267,7 @@ ASCII 脑图（见第 3 节）+ 健康面板：总记忆数、本周新增、遗
 `brain_dashboard` → 返回 `…/deepseek-brain/dashboard.html`。它不是「数据看板」，是一台**观测仪**：骨白与墨色、宋体标题、等宽数字、压印按钮，没有任何圆角渐变卡片。四页（hash 路由，键盘 `1–4`）：
 
 - **概览 VITALS**：脑区度数表（五层的条数/占比/平均强度）+ 14 天生命体征示波器（新增/遗忘/巩固/巩固次数四条迹线）+ 读数板（λ、半衰期、遗忘阈值、Pinned 条数、数据目录、备份数、向量索引、当前会话）+ 检索台（真正 `POST /api/recall`，把分数四分量列出来）。
-- **编年史 CHRONICLE**：等宽表格虚拟滚动，每条给出「强度预报」——`还剩 31.2 日 · 强度 0.50` 或 `免疫 · Imp 5`，直接读服务端 `forgetInDays`，不在前端重算公式。
+- **编年史 CHRONICLE**：等宽表格虚拟滚动，每条给出「强度预报」——`还剩 31.2 日 · 强度 0.50` 或 `免疫 · Imp 5`，直接读服务端 `forgetInDays`，不在前端重算公式。点任意一行打开**版本链抽屉**：`v1 … vN` 分开标注当前版与 `[已修正]`，点开看那一版当时的字段；`恢复此版本` 对情景/程序走 `PATCH api/memories/:id`（历史另存一版，不覆盖），对语义事实走 `POST api/conflicts/:id/restore`。
 - **纤维追踪 TRACTOGRAPHY**：力导向的语义纤维束，主体/客体分级着色，`[已修正]` 用虚线束；右侧实体档案按度数排序，点实体列出它的全部事实。
 - **衰减实验 DECAY LAB**：左侧时间转盘（±30 天）真的会 `GET /api/state?at=`，右侧强度曲线族按当前 λ 画出每条记忆的衰减轨迹与阈值穿越点，右下是遗忘预报清单（按 `forgetInDays` 升序）。
 
@@ -293,6 +293,8 @@ POST /api/import                        # 并入另一份 export，只做加法
 | 编年史 | 纤维追踪 |
 | --- | --- |
 | ![编年史](docs/screenshots/dash-chronicle.png) | ![纤维追踪](docs/screenshots/dash-tractography.png) |
+
+![编年史 · 版本链抽屉](docs/screenshots/dash-revisions.png)
 
 | 衰减实验 | 手机（390 px） |
 | --- | --- |
