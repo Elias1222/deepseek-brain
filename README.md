@@ -346,6 +346,7 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 | 只读横幅 | `/api/state` 带 `readOnly` 与 `lock`（持有者 pid）；只读时顶栏一直亮着 `只读 · 数据目录被 pid N 占用`，持有者退出、`handoverMs` 到点自动接管后自动消失。写请求期间会拿到 503 `read-only`，不会假装成功 |
 | 两个实例共用一条活动流 | 持锁进程把每条事件追加到 `activity.jsonl`（上限 400 行）；只读实例启动时读进内存（`hydrate`），之后每次 `GET /api/activity` 与**每条 SSE 连接每秒一次**的 `syncActivityFromDisk()` 里用 `ActivityLog.ingest()` 追平——新事件同时推给订阅者，所以只读窗口的 3D 动画也由持有者的动作驱动。只读实例自己不写盘，接管后才接上落盘钩子 |
 | 数据目录独占 | `Store.acquireLock()` 用 `wx` 在数据目录写 `brain.lock`（pid / 时间 / 主机名）。抢不到锁先**排队**（`lockWaitMs`，默认 8 s），等到就重读磁盘再继续；等不到则以只读启动——`/api/health` 报 `readOnly: true` 与持有者 pid，写请求回 `503 read-only`，前端提示「只读：数据目录被另一个进程占用」。只读实例还有后台**接管**轮询（`handoverMs`，默认 20 s）：前任进程一退出，它自己升级成可写、重读磁盘、记一次新世代。陈锁（pid 已死或超过 6 小时）会被直接接管 |
+| 清空时的收拢 | `reset` 事件到达后，每枚 engram 沿自己的扇区角度（`archiveAngle(layer, slot.u)`）飞回归档环并缩小淡出，环上再扫一圈光；1.45 s 后本地热度/相关度/检索史一起归零，服务端此时已是空结构 |
 | 「睡眠 / 衰减 / 遗忘」压印按钮 | 真的 `POST /api/sleep`、`/api/decay`、`/api/forget`，迁移与归档在标本上留下路径与残影 |
 | 归档环里的往返 | 底板外环按五层切成五段扇区（每段用该层染料，扇区中点常显「感觉 / 工作 / 情景 / 语义 / 程序」小字——标签方向跟着相机转，但半径固定在标本外圈，所以任何方位角下五个都在、互不遮挡），`forget` / `decay` 让 engram 缩着飞向**自己那一段**；`restore` 沿同一路径长回来，`undo` 再反向飞出去——落点由 `archiveAngle(layer, slot.u)` 决定，不是随机角度 |
 

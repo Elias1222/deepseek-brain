@@ -3946,6 +3946,40 @@
     APP.heatDirty = true;
   }
 
+  /* 清空：每枚 engram 沿自己的扇区角度飞回归档环，环上再扫一圈光，最后清空本地缓存。 */
+  function playResetCollapse(ev) {
+    if (!APP.model) return;
+    var list = allEngrams(APP.model).slice(0, 24);
+    var step = list.length ? Math.min(0.02, 0.5 / list.length) : 0;
+    list.forEach(function (rec, idx) {
+      var u = slotOf(rec.id).u;
+      var to = archivePoint(archiveAngle(rec.layer, u));
+      APP.moving.push({
+        rec: rec, t: 0, dur: 1.5 + idx * step,
+        from: rec.pos.clone(), to: to, fade: true, scale: 0.55,
+      });
+    });
+    /* 环上扫一圈：所有东西都落到这里了 */
+    var ring = [];
+    for (var i = 0; i <= 96; i++) ring.push(archivePoint((i / 96) * Math.PI * 2));
+    spawnPulse(ring, new THREE.Color('#e6e0d2'), 0.07, 1.5, 0);
+    if (focusRing) { focusRing.visible = false; focusRing.material.opacity = 0; }
+    APP.focus.on = false; APP.focus.ids = null; APP.focus.hold = false;
+    APP.hoverId = null;
+    var cleared = (ev && ev.cleared) || {};
+    var total = (cleared.episodic || 0) + (cleared.semantic || 0) + (cleared.procedural || 0);
+    toast('已清空 · ' + total + ' 条记忆收回归档环');
+    setStatus('reset', 'empty · ' + total + ' engravings returned to the ring', 'warn');
+    setTimeout(function () {
+      /* 本地缓存跟着归零：热度、相关度、检索史、世代序号 */
+      LAYERS.forEach(function (k) { APP.heat[k] = 0; });
+      APP.heatK = {}; APP.heatKMax = 0; APP.relK = {}; APP.relKMax = 0;
+      APP.queries = []; APP.graphIdx = 0;
+      if (typeof window.__uiRedraw === 'function') window.__uiRedraw();
+      refreshState({ quiet: true });
+    }, 1450);
+  }
+
   function ingestEvent(ev, demo) {
     if (!ev || !ev.kind) return;
     APP.animGate = animAllowed();
@@ -3972,6 +4006,10 @@
     else if (kind === 'restore' || kind === 'archive') { heatAdd(ev.layer || 'episodic', 0.7); heatAddKey(ev.id, 0.7); }
     else if (kind === 'consolidate' || kind === 'sleep') {
       LAYERS.forEach(function (k) { APP.heat[k] *= 0.62; });
+    }
+    if (kind === 'reset') {
+      playResetCollapse(ev);
+      return;
     }
     if (kind === 'observe') {
       var s = anchorVec('sensory'), w = anchorVec('working');
