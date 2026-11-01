@@ -2837,12 +2837,25 @@
       .catch(function (err) { done(false, '失败 · ' + String((err && err.code) || 'network')); });
   }
 
+  /* 离线演示改重要度：写回 APP.demoRaw（applyDemoTime 的唯一来源），再重建模型 */
   function demoEditImportance(id, importance) {
-    if (!APP.demoState) return;
-    [].concat(APP.demoState.episodic || [], APP.demoState.semantic || [], APP.demoState.procedural || []).forEach(function (it) {
-      if (it.id === id) it.importance = importance;
+    var raw = APP.demoRaw;
+    if (!raw) return;
+    var buckets = [raw.episodic, raw.semantic, raw.procedural];
+    ['episodic', 'semantic', 'procedural'].forEach(function (k) {
+      if (raw[k] && raw[k].items) buckets.push(raw[k].items);
     });
+    var hit = false;
+    buckets.forEach(function (list) {
+      if (!list || !list.length) return;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].id === id) { list[i].importance = importance; hit = true; }
+      }
+    });
+    if (!hit) return;
     applyDemoTime();
+    renderGauges();
+    refreshHighlight();
   }
 
   function doForget() {
