@@ -176,6 +176,25 @@ PATCH /api/memories/ep_abc
 `POST /api/conflicts/:id/restore` — 回滚：旧值重新生效，当前值转为 `[已修正]`，两条都留着。
 → `{ "ok": true, "restored": { "id", "subject", "relation", "object" }, "replaced": { "id", "object" } | null }`
 
+`POST /api/conflicts/prune` — 清理同一个槽位里堆着的旧值：每个槽位保留最近 `keep` 条（默认 1），
+其余从语义库摘出、写入 `archive.json`（`reason: "superseded"`），**永不物理删除**。
+
+```jsonc
+{ "subject": "用户", "relation": "职业", "keep": 1, "dryRun": false }   // subject/relation 省略即全库
+// → { "ok": true, "keep": 1, "dryRun": false, "removed": 1, "ids": ["sem_old"],
+//     "groups": 1, "byGroup": [{ "key": "用户 → 职业", "kept": 1, "removed": 1 }] }
+```
+
+`GET /api/conflicts` 的响应同时带聚合视图，前端据此渲染「废弃事实」面板：
+
+```jsonc
+{ "ok": true, "total": 2, "removable": 1, "items": [ … ],
+  "groups": [ { "key": "用户 → 职业", "subject": "用户", "relation": "职业",
+                "current": { "id": "sem_new", "object": "产品设计师", "ts": "…" },
+                "corrected": [ { "id": "sem_old", "object": "设计师", "ts": "…", "importance": 4 } ],
+                "removable": 1 } ] }
+```
+
 `POST /api/import` — 把另一台设备导出的档案（`/api/export.json` 的同一形状）并进来；只做加法，
 同 id / 同三元组 / 同规则 / 同事件原文的一律跳过，不覆盖本地。
 

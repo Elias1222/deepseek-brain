@@ -299,6 +299,22 @@ input[type="text"]:focus{border-color:var(--celadon);background:#0d1012}
 .tip .old{color:var(--paper-3);border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
 .tip .old em{font-style:normal;color:var(--cinnabar)}
 
+/* ── deprecated facts ────────────────────────────────────────── */
+.depr{flex:0 0 auto;max-height:42%;display:flex;flex-direction:column;min-height:132px;
+  border-top:1px solid var(--line);margin-top:2px}
+.depr-body{flex:1;overflow:auto;min-height:0;padding:4px 2px 2px}
+.depr-empty{padding:8px 2px;font-size:10px;line-height:1.7;color:var(--paper-4)}
+.depr-row{display:flex;align-items:center;gap:6px;padding:5px 2px;border-bottom:1px solid rgba(230,224,210,.06)}
+.depr-row .who{flex:1;min-width:0;font-size:10px;color:var(--paper-2);line-height:1.45}
+.depr-row .who b{color:var(--paper);font-weight:500}
+.depr-row .who em{font-style:normal;color:var(--paper-4)}
+.depr-row .n{flex:none;font:10px/1 var(--mono);color:var(--cinnabar-2)}
+.depr-row .btn{flex:none;padding:3px 6px;font-size:9px}
+.depr-foot{display:flex;align-items:center;gap:6px;padding:6px 2px 2px;border-top:1px solid rgba(230,224,210,.08)}
+.depr-foot .st{flex:1;min-width:0;font:9px/1.5 var(--mono);color:var(--paper-4)}
+.depr-foot .st.ok{color:var(--celadon)}
+.depr-foot .st.bad{color:var(--cinnabar-2)}
+
 /* ── revisions drawer ────────────────────────────────────────── */
 .revdrawer{position:fixed;top:0;right:0;bottom:0;width:min(432px,94vw);z-index:70;
   background:linear-gradient(180deg,var(--ink-3),var(--ink));border-left:1px solid var(--line-2);
@@ -655,6 +671,14 @@ input[type="text"]:focus{border-color:var(--celadon);background:#0d1012}
         <aside class="panel facts-panel">
           <header class="panel-h"><span class="pl">实体档案</span><span class="en">ENTITY</span><span class="lead"></span><span class="meta" id="factCount">—</span></header>
           <div class="facts" id="factsBody"><p class="fact-empty">尚未选取节点。<br>点选任一实体，此处列出该实体的全部事实——包括被修正的旧版本与取代链。</p></div>
+          <section class="depr" aria-label="废弃事实">
+            <header class="panel-h"><span class="pl">废弃事实</span><span class="en">DEPRECATED</span><span class="lead"></span><span class="meta" id="deprMeta">—</span></header>
+            <div class="depr-body" id="deprBody"><p class="depr-empty">读取中…</p></div>
+            <div class="depr-foot">
+              <span class="st" id="deprSt">每个槽位保留最近 1 条旧值，其余软归档</span>
+              <button class="btn btn-ghost" id="deprAll" type="button">全部归档</button>
+            </div>
+          </section>
         </aside>
       </div>
     </section>
@@ -788,7 +812,7 @@ var LAYER = {
   semantic:  { cn:'语义记忆', short:'语义', en:'SEMANTIC',  c:'#87a44f', region:'语义区' },
   procedural:{ cn:'程序记忆', short:'程序', en:'PROCEDURAL',c:'#c07a45', region:'程序区' }
 };
-var KIND = { observe:'观察', recall:'检索', remember:'写入', correct:'修正', forget:'归档', consolidate:'巩固', decay:'衰减' };
+var KIND = { observe:'观察', recall:'检索', remember:'写入', correct:'修正', forget:'归档', consolidate:'巩固', decay:'衰减', edit:'修订', import:'合并', prune:'清理', travel:'切片', sleep:'睡眠' };
 var VIEWS = ['vitals','chronicle','tractography','decay'];
 var ROW_H = 44, OVERSCAN = 7;
 var POLL_STATE = 8000, POLL_ACT = 1000;
@@ -1229,6 +1253,7 @@ function eventText(ev){
   if(t === 'recall') return '检索 “' + trunc(ev.query || '', 16) + '” · ' + (ev.hits ? ev.hits.length : 0) + ' 命中 · ' + (ev.took || 0) + 'ms';
   if(t === 'consolidate') return '巩固 · 迁移 ' + (ev.migrated || 0) + ' / 压缩 ' + (ev.compressed || 0) + ' / 剪枝 ' + (ev.pruned || 0);
   if(t === 'decay') return '衰减 · ' + (ev.count || 0) + ' 条';
+  if(t === 'prune') return '废弃版本 ' + (ev.count || 0) + ' 条 · 每槽留 ' + (ev.keep || 1);
   if(t === 'observe') return '观察 · ' + trunc(ev.text || ev.topic || '', 24) + (ev.kept ? ' → ' + layerLabel(ev.kept.layer) : '');
   return t || '事件';
 }
@@ -2429,6 +2454,119 @@ function selectNode(id){
   drawGraph();
 }
 
+/* ── deprecated facts ───────────────────────────────────────── */
+var DEPR = { groups: [], removable: 0, busy: false };
+
+function deprSetStatus(text, kind){
+  var el = $('deprSt');
+  if(!el) return;
+  el.className = 'st' + (kind ? ' ' + kind : '');
+  el.textContent = text;
+}
+
+function deprGroupsFromState(state){
+  var sem = (state && state.semantic) || [];
+  var map = {};
+  sem.forEach(function(f){
+    if(f.status !== 'corrected') return;
+    var key = f.subject + ' → ' + f.relation;
+    if(!map[key]) map[key] = { key: key, subject: f.subject, relation: f.relation, corrected: [], current: null };
+    map[key].corrected.push(f);
+  });
+  sem.forEach(function(f){
+    if(f.status !== 'active') return;
+    var key = f.subject + ' → ' + f.relation;
+    if(map[key]) map[key].current = f;
+  });
+  return Object.keys(map).map(function(k){ return map[k]; })
+    .sort(function(a, b){ return b.corrected.length - a.corrected.length; });
+}
+
+function renderDeprecated(){
+  var body = $('deprBody');
+  if(!body) return;
+
+  if(S.mode === 'demo'){
+    var groups = deprGroupsFromState(stateOf());
+    DEPR.groups = groups;
+    DEPR.removable = groups.reduce(function(s, g){ return s + Math.max(0, g.corrected.length - 1); }, 0);
+    $('deprMeta').textContent = groups.length + ' 槽位 · 演示';
+    if(!groups.length){
+      body.innerHTML = '<p class="depr-empty">演示样本里没有被修正的事实。</p>';
+      $('deprAll').disabled = true;
+      deprSetStatus('离线演示：清理动作不可用', '');
+      return;
+    }
+    body.innerHTML = groups.map(function(g){
+      return '<div class="depr-row"><span class="who"><b>' + esc(g.key) + '</b> <em>现「' + esc(g.current ? g.current.object : '无生效值') + '」</em></span>' +
+        '<span class="n">' + g.corrected.length + ' 条</span></div>';
+    }).join('');
+    $('deprAll').disabled = true;
+    deprSetStatus('离线演示：清理需要宿主服务', '');
+    return;
+  }
+
+  return api('api/conflicts').then(function(data){
+    DEPR.groups = data.groups || [];
+    DEPR.removable = data.removable || 0;
+    $('deprMeta').textContent = DEPR.groups.length + ' 槽位 · 可归档 ' + DEPR.removable + ' 条';
+    $('deprAll').disabled = DEPR.removable === 0;
+    if(!DEPR.groups.length){
+      body.innerHTML = '<p class="depr-empty">没有废弃事实：语义库里没有任何事实被修正过。</p>';
+      deprSetStatus('无可归档项', 'ok');
+      return;
+    }
+    body.innerHTML = DEPR.groups.map(function(g){
+      var can = Math.max(0, g.corrected.length - 1);
+      var btn = can > 0
+        ? '<button class="btn btn-ghost" type="button" data-prune="' + esc(g.subject) + '" data-rel="' + esc(g.relation) + '">归档 ' + can + '</button>'
+        : '<span class="n" style="color:var(--paper-4)">已收敛</span>';
+      return '<div class="depr-row"><span class="who"><b>' + esc(g.key) + '</b> <em>现「' +
+        esc(g.current ? g.current.object : '无生效值') + '」· 旧值 ' + g.corrected.length + ' 条</em></span>' +
+        '<span class="n">' + can + ' 可归档</span>' + btn + '</div>';
+    }).join('');
+    deprSetStatus('每个槽位保留最近 1 条旧值，其余软归档', '');
+  }).catch(function(err){
+    body.innerHTML = '<p class="depr-empty">读取失败：' + esc(err && err.message ? err.message : 'unknown') + '</p>';
+    deprSetStatus('读取失败', 'bad');
+  });
+}
+
+function deprPrune(subject, relation){
+  if(DEPR.busy) return;
+  DEPR.busy = true;
+  deprSetStatus('归档中…', '');
+  var payload = { keep: 1 };
+  if(subject) payload.subject = subject;
+  if(relation) payload.relation = relation;
+  api('api/conflicts/prune', { method:'POST', body: payload }).then(function(res){
+    DEPR.busy = false;
+    var note = res.removed
+      ? '已归档 ' + res.removed + ' 条 · 留档在 archive.json'
+      : '没有可归档的旧版本';
+    return Promise.resolve(renderDeprecated()).then(function(){
+      deprSetStatus(note, 'ok');
+    });
+  }).then(function(){
+    if(typeof refreshState === 'function') refreshState();
+  }).catch(function(err){
+    DEPR.busy = false;
+    deprSetStatus('归档失败 · ' + (err && err.message ? err.message : 'unknown'), 'bad');
+  });
+}
+
+function wireDeprecated(){
+  var body = $('deprBody');
+  if(!body || body.__wired) return;
+  body.__wired = true;
+  body.addEventListener('click', function(ev){
+    var b = ev.target.closest('[data-prune]');
+    if(!b) return;
+    deprPrune(b.getAttribute('data-prune'), b.getAttribute('data-rel'));
+  });
+  $('deprAll').addEventListener('click', function(){ deprPrune(null, null); });
+}
+
 function renderFacts(id){
   var st = stateOf();
   var body = $('factsBody');
@@ -3073,7 +3211,7 @@ function go(view, silent){
   hideTip();
   requestAnimationFrame(function(){
     if(view === 'vitals'){ drawScope(); }
-    else if(view === 'tractography'){ renderGraph(false); }
+    else if(view === 'tractography'){ renderGraph(false); wireDeprecated(); renderDeprecated(); }
     else if(view === 'decay'){ renderDecay(); }
     else if(view === 'chronicle'){ renderWindow(); }
   });
