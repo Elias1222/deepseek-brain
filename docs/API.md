@@ -163,7 +163,9 @@ conversation would.
 POST /api/observe
 { "text": "我叫林夕，是一名产品设计师，我住在北京", "sessionId": "default" }
 // → { "ok": true, "kept": { "id": "ep_…", "layer": "episodic", "importance": 4 } | null,
-//      "topic": "产品设计师", "shelved": [], "facts": [ …semantic triples… ], "dropped": 0 }
+//      "topic": "产品设计师", "shelved": [], "dropped": 0,
+//      "entities": { "people": [], "places": ["北京"], "emotions": [] },
+//      "facts": [ { "subject": "用户", "relation": "职业", "object": "产品设计师", "importance": 4 } ] }
 ```
 
 What it does: (1) pushes the utterance into the sensory buffer as an entity-bearing trace, (2) pushes the
@@ -192,6 +194,12 @@ recorded as facts about the user: `李雪是老师` produces nothing, `张伟是
 | `person-role` | 身份 | 4 | `张伟是同事` |
 | `kin-name` | 姓名 | 4 | `我妈叫李雪` → 妈 → 姓名 → 李雪 |
 | `rule` | — (procedural) | 4 | `记住：回答先给结论` |
+
+When the utterance carries a time phrase (`明天下午三点`, `下周三上午十点半`, `月底`, `3 月 7 号`), the
+episodic record gets `when` (the phrase as spoken) and `whenAt` (absolute ISO instant) — the record time
+`ts` stays separate, so "when it happened" and "when I was told" never get mixed up. A pronoun subject
+(`她`, `他`, `它`) is bound to the last name mentioned earlier **in the same sentence**; if there is no
+antecedent the triple is dropped and reported in `unbound` rather than written with a guessed subject.
 
 Post-processing: `clean()` strips trailing particles (`的了吧呢啊…`), `accept()` rejects pronouns,
 one-token answers, ≥7-digit numbers and objects ending in `吗/呢/么`; interrogative sentences are skipped

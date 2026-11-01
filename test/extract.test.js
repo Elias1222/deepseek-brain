@@ -54,3 +54,14 @@ test('the same fact is not emitted twice in one sentence', () => {
   const out = facts('我是产品设计师，也是产品设计师');
   assert.equal(out.length, 1);
 });
+
+test('a pronoun subject is bound to the person named earlier in the sentence', () => {
+  assert.deepEqual(pairs('张伟说他下周来，他是我的同事'), ['张伟|身份|同事']);
+});
+
+test('a pronoun with no antecedent is dropped, not guessed', () => {
+  const out = extractFacts('她是我的老板');
+  assert.deepEqual(out.facts, []);
+  assert.equal(out.unbound.length, 1);
+  assert.equal(out.unbound[0].pronoun, '她');
+});

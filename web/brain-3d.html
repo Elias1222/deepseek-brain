@@ -541,6 +541,7 @@
   };
   /* 调试/自动化钩子：只读观察内部状态，不参与渲染 */
   window.__brain = APP;
+  window.__selectEngram = function (rec) { return selectEngram(rec); };
 
   /* ---------------------------------- utils ---------------------------------- */
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -2808,13 +2809,18 @@
     if (rec.layer === 'episodic') {
       var who = (r.participants || []).length ? escapeHTML(r.participants.join('、')) : '只有你与它';
       var emo = r.emotion ? escapeHTML(r.emotion) : '—';
+      var whenRow = r.when
+        ? ['WHEN · 计划', escapeHTML(String(r.when)) + (r.whenAt ? ' <i>' + escapeHTML(fmtClock(r.whenAt)) + '</i>' : '')]
+        : null;
+      var metaRows = [['T · 发生', escapeHTML(fmtClock(r.ts || rec.ts))],
+                      ['WHERE · 地点', r.place ? escapeHTML(String(r.place)) : '—'],
+                      ['WHO · 参与者', who],
+                      ['FEEL · 情绪', emo]];
+      if (whenRow) metaRows.push(whenRow);
       var orig = '<div class="e-orig"><p class="q">' + escapeHTML(String(r.event || rec.title)) +
         (r.place ? '<span class="m"> · ' + escapeHTML(String(r.place)) + '</span>' : '') + '</p>' +
         (r.detail ? '<p class="note">' + escapeHTML(truncate(String(r.detail), 260)) + '</p>' : '') +
-        meta2([['T · 发生', escapeHTML(fmtClock(r.ts || rec.ts))],
-               ['WHERE · 地点', r.place ? escapeHTML(String(r.place)) : '—'],
-               ['WHO · 参与者', who],
-               ['FEEL · 情绪', emo]]) + '</div>';
+        meta2(metaRows) + '</div>';
       return orig;
     }
     return '<p class="e-sub">' + escapeHTML(rec.sub || '') + '</p>';
