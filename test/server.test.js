@@ -186,6 +186,36 @@ test('PATCH /api/memories/:id edits a memory and reports the changed fields', as
   });
 });
 
+test('memory versions are readable over GET /api/memories/:id', async () => {
+  await withServer(async ({ origin }) => {
+    const created = await get(origin, '/api/remember', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ layer: 'episodic', event: '版本链测试', place: '望京', importance: 2 }),
+    });
+    const id = created.json.item.id;
+    await get(origin, `/api/memories/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ importance: 4, place: '三里屯' }),
+    });
+
+    const chain = await get(origin, `/api/memories/${id}`);
+    assert.equal(chain.status, 200);
+    assert.equal(chain.json.layer, 'episodic');
+    assert.equal(chain.json.versions.length, 2, 'original + one edit');
+    assert.equal(chain.json.versions[0].fields.place, '望京');
+    assert.equal(chain.json.versions[0].fields.importance, 2);
+    assert.equal(chain.json.versions[1].current, true);
+    assert.equal(chain.json.versions[1].fields.place, '三里屯');
+    assert.equal(chain.json.versions[1].fields.importance, 4);
+
+    const missing = await get(origin, '/api/memories/nope');
+    assert.equal(missing.status, 404);
+    assert.equal(missing.json.error.code, 'not-found');
+  });
+});
+
 test('conflict endpoints list a correction and roll it back', async () => {
   await withServer(async ({ origin }) => {
     const first = await get(origin, '/api/remember', {

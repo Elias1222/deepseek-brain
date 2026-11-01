@@ -146,6 +146,25 @@ PATCH /api/memories/ep_abc
 - 语义三元组改 `object` 时**不会就地覆盖**：新值走一次冲突检测，旧值变成 `status:"corrected"`，响应里 `corrected` 列出被顶替的那条。
 - 404 `not-found`；没有任何可改字段时 `changed: []`。
 
+`GET /api/memories/:id` — 版本链。`v1` 是入库时的样子，之后每次编辑压一版，最后一版 `current: true`：
+
+```jsonc
+{ "ok": true, "layer": "episodic", "id": "ep_abc", "title": "和张伟在望京开会，讨论排期",
+  "versions": [
+    { "v": 1, "ts": "2026-10-29T07:07:00.000Z", "current": false, "status": "past",
+      "fields": { "event": "…", "detail": "", "place": "望京", "emotion": "紧张",
+                  "participants": ["张伟"], "importance": 2 },
+      "changed": ["place", "importance"] },
+    { "v": 2, "ts": "2026-10-31T06:12:00.000Z", "current": true, "status": "current",
+      "fields": { "…": "…" }, "changed": [] }
+  ] }
+```
+
+- 只存**可编辑字段**（`event/detail/place/emotion/participants/importance`、`rule/strength`、`object`），派生量（`strength`、`salience`、`forgetInDays`）永不入档。
+- 每条最多保留 20 个历史版本；语义事实的版本链是同一 `(subject, relation)` 槽位下的所有记录，`status` 为 `active | corrected`，回滚用 `/api/conflicts/:id/restore`。
+- 「恢复某一版」不是特殊端点：对情景/程序记忆再发一次 `PATCH` 带上那一版的字段即可（会再压一版，历史不被覆盖）；语义事实走 `restore`。
+- 404 `not-found`。
+
 `GET /api/conflicts` — 所有被修正过的事实与它们的当前值：
 
 ```jsonc

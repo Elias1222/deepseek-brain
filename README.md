@@ -155,6 +155,7 @@ dsh plugin add ./deepseek-brain
 | `brain_recall` | 检索 top-K，返回分数拆解 | `query`(必填) `topK` `layers` |
 | `brain_visualize` | ASCII 脑图 + 健康面板 | — |
 | `brain_update` | 就地修订一条记忆（情景字段 / 语义 object / 程序 rule），保留历史 | `id`(必填) `importance` `event` `detail` `place` `emotion` `object` `rule` |
+| `brain_history` | 看一条记忆的版本链（v1 … 当前），回答「之前到底是怎么说的」 | `id`(必填) |
 | `brain_conflicts` | 列出被修正的事实与当前生效值 | — |
 | `brain_restore` | 把某条 `[已修正]` 的旧值放回生效位 | `id`(必填) |
 | `brain_import` | 并入另一份 export（只做加法，冲突跳过） | `path` 或 `json` |
@@ -280,6 +281,7 @@ GET  /api/export.json GET /api/snapshot.md       GET /api/conflicts
 POST /api/remember    POST /api/forget   POST /api/sleep   POST /api/decay
 POST /api/recall      POST /api/working/push
 PATCH|POST /api/memories/:id            # 就地修订（importance / 字段 / 语义 object）
+GET  /api/memories/:id                 # 版本链 v1…当前
 POST /api/conflicts/:id/restore         # 把 [已修正] 的旧值放回生效位
 POST /api/import                        # 并入另一份 export，只做加法
 ```
@@ -313,6 +315,7 @@ node tools/build-3d.mjs      # 生成 dist/deepseek-brain-3d.html
 | 五层形态不同：感觉=彗星、工作=环链、情景=多棘星、语义=晶格、程序=双楔 | 层的语义差异；语义晶格的连线是真实三元组与共享实体的边 |
 | 核的位置永远固定 | FNV-1a 确定性寻址（见 `docs/API.md` §7）：同一条记忆每次刷新都落在同一格，你看到的刻度可被复现 |
 | 点击任何一枚 → 右侧「目镜」 | 弹出该条记忆的完整字段：`id / slot u,v / 盘内 r,θ / anchor / ageDays / strength / salience / hits / ts / 遗忘预报` |
+| 目镜里的「修订史 v1…vN」 | `GET /api/memories/:id` 的版本链：点开任一版看它当时的字段，`恢复此版本` 会再压一版而不是覆盖历史；`重要度 −/+` 走 `PATCH` |
 | 底板上的「时间切片」与转盘 | 拖动即 `GET /api/state?at=±Nd`，整具标本按那一时刻重新计算强度，随时可回到 `now` |
 | 顶栏 `事件序号`、观测条脉冲 | `GET /api/activity?since=` 的增量：Agent 每次检索/写入/遗忘都在标本上打出一次脉冲 |
 | 检索台 | 真的 `POST /api/recall`，命中项按 `score` 亮起并连出白质纤维束 |
@@ -403,7 +406,7 @@ DEEPSEEK_BRAIN_DIR=/tmp/brain node tools/demo.mjs   # 用临时数据目录，�
 | `test/memory.test.js` | 落盘/重启后记忆存活、观察闸门、recall、软删除、衰减清理、睡眠巩固、`apiState` 契约、演示数据、prompt 块、配置夹取 |
 | `test/activity.test.js` | 活动流：seq 单调、payload 不能伪造 `seq/kind`、未知 kind 回退、环形缓冲上限、`since()` 只返回增量 |
 | `test/server.test.js` | 全端点、CORS/预检、静态资源、路径穿越拒绝、坏 JSON 结构化报错、`salience` 派生、时间旅行、`forgetInDays` 预报、`POST /api/recall` |
-| `test/plugin.test.js` | cordis 契约、11 个工具 schema 只使用 DSH 支持的 JSON Schema 子集、端到端工具调用、`session/event` 捕获、prompt 注入 |
+| `test/plugin.test.js` | cordis 契约、12 个工具 schema 只使用 DSH 支持的 JSON Schema 子集、端到端工具调用、`session/event` 捕获、prompt 注入 |
 | `test/frontend.test.js` | 两个页面无远程依赖、内联脚本可编译、3D 页引用 vendor + `api/state` + 五层名称、`dist` 单文件把 three.js 内联且无外链 |
 
 调试入口：
@@ -439,7 +442,7 @@ deepseek-brain/
 ├── cordis.patch.yml          # DSH bundle 插入声明
 ├── package.json              # main: lib/index.js, dsh.bundle.patch
 ├── lib/
-│   ├── index.js              # 插件入口：11 个工具 + prompt 注入 + 事件捕获 + Web 挂载 + 自主遗忘定时器
+│   ├── index.js              # 插件入口：12 个工具 + prompt 注入 + 事件捕获 + Web 挂载 + 自主遗忘定时器
 │   ├── memory.js             # MemorySystem：五层编排、配置、状态、prompt 块、演示数据、遗忘预报
 │   ├── store.js              # 原子写、备份轮转、损坏恢复
 │   ├── sensory.js            # 感觉缓冲 + 实体抽取 + 注意闸门

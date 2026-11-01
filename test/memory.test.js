@@ -179,6 +179,46 @@ test('autonomous decay interval is optional and clamped, 0 disables it', async (
   assert.equal((await makeMemory({ autoDecayMinutes: 'soon' }).init()).config.autoDecayMinutes, 0);
 });
 
+test('every edit leaves a recoverable version behind', async () => {
+  const memory = await makeMemory({ demoSeed: false }).init();
+  const written = memory.remember({ layer: 'episodic', event: '和张伟在望京开会', place: '望京', importance: 2 }).item;
+  memory.update(written.id, { importance: 3 });
+  memory.update(written.id, { place: '三里屯', detail: '改到周五' });
+
+  const chain = memory.historyOf(written.id);
+  assert.equal(chain.layer, 'episodic');
+  assert.equal(chain.versions.length, 3, 'v1 + two edits = three recoverable versions');
+  assert.deepEqual(chain.versions.map((v) => v.v), [1, 2, 3]);
+
+  const [first, second, current] = chain.versions;
+  assert.equal(first.fields.event, '和张伟在望京开会', 'v1 keeps the wording as first stored');
+  assert.equal(first.fields.importance, 2, 'v1 keeps the original importance');
+  assert.equal(first.fields.place, '望京');
+  assert.deepEqual(first.changed, ['importance'], 'v1 records which fields the first edit replaced');
+  assert.equal(second.fields.importance, 3, 'v2 is the state after the first edit');
+  assert.equal(second.fields.place, '望京', 'v2 still has the pre-edit place');
+  assert.deepEqual(second.changed.sort(), ['detail', 'place']);
+  assert.equal(current.current, true);
+  assert.equal(current.fields.place, '三里屯');
+  assert.equal(current.status, 'current');
+  assert.equal(memory.historyOf('ep_missing'), null);
+});
+
+test('semantic history exposes the whole chain of one fact slot', async () => {
+  const memory = await makeMemory({ demoSeed: false }).init();
+  const firstFact = memory.remember({ layer: 'semantic', subject: '用户', relation: '职业', object: '设计师', importance: 3 }).item;
+  const secondFact = memory.remember({ layer: 'semantic', subject: '用户', relation: '职业', object: '产品设计师', importance: 5 }).item;
+
+  const chain = memory.historyOf(secondFact.id);
+  assert.equal(chain.layer, 'semantic');
+  assert.equal(chain.versions.length, 2);
+  const stale = chain.versions.find((v) => v.status === 'corrected');
+  const live = chain.versions.find((v) => v.current);
+  assert.equal(stale.id, firstFact.id, 'the stale version points at the old record');
+  assert.equal(stale.fields.object, '设计师');
+  assert.equal(live.fields.object, '产品设计师');
+});
+
 test('a memory really disappears once its strength falls under the threshold', async () => {
   const memory = await makeMemory({ demoSeed: false }).init();
   const weak = memory.remember({ layer: 'episodic', event: '顺手提了一句的小事', importance: 1 }).item;

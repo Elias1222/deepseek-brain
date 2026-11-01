@@ -83,6 +83,7 @@ test('apply registers seven tools with DSH-supported schemas', async () => {
       'brain_visualize',
       'brain_update',
       'brain_forget',
+      'brain_history',
       'brain_conflicts',
       'brain_restore',
       'brain_import',
