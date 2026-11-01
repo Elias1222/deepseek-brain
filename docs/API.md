@@ -166,7 +166,7 @@ POST /api/observe
 //      "topic": "产品设计师", "shelved": [], "dropped": 0,
 //      "entities": { "people": [], "places": ["北京"], "emotions": [] },
 //      "facts": [ { "subject": "用户", "relation": "职业", "object": "产品设计师", "importance": 4 } ],
-//      "unbound": [] }   // 代词找不到同一句里的先行词时列在这里，且不写库
+//      "unbound": [] }   // 代词解析失败时列在这里，且不写库；reason: no-candidate | no-gender-evidence | ambiguous
 ```
 
 Extraction runs **before** the episodic gate: whether a sentence deserves to be an event, and whether it
