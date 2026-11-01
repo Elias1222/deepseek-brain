@@ -978,7 +978,7 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
      ======================================================================= */
   var BRAIN = { AX: 1.40, AY: 1.46, AZ: 2.02 };
   var COL_BONE = new THREE.Color('#ded8c9');
-  var COL_DEEP = new THREE.Color('#1b1d1e');
+  var COL_DEEP = new THREE.Color('#26282b');
   var COL_TISSUE = new THREE.Color('#8d8b7f');
 
   /* ── 脑叶并集：不是一颗椭球，而是额/顶/枕/颞四叶的平滑并集 ──────────────
@@ -1213,9 +1213,12 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
       c.copy(COL_DEEP).lerp(COL_BONE, t2);
       /* shadows read cool, crests read warm bone — the specimen is not neutral grey */
       var warm = 0.10 * t2 + 0.18 * crown;
+      /* 沟底偏冷、回冠偏暖：同一种骨白，两极分开之后暗部才有「透气感」 */
+      var cool = 0.045 * Math.pow(clamp(sulArr[j], 0, 1), 1.8) * (1 - crown);
       c.r = clamp(c.r + warm * 0.55, 0, 1);
       c.g = clamp(c.g + warm * 0.30, 0, 1);
-      c.b = clamp(c.b - warm * 0.18, 0, 1);
+      c.b = clamp(c.b - warm * 0.18 + cool * 0.8, 0, 1);
+      c.r = clamp(c.r - cool * 0.6, 0, 1);
       colors[j * 3] = c.r; colors[j * 3 + 1] = c.g; colors[j * 3 + 2] = c.b;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
