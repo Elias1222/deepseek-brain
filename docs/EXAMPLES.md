@@ -214,7 +214,16 @@ curl -s 'http://127.0.0.1:7799/deepseek-brain/api/memories/ep_abc123' | jq '.ver
 # 4) 发现新说法才是错的：把旧的放回生效位（新的降级为 [已修正]，两条都留着）
 curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/conflicts/sem_old123/restore'
 
-# 5) 换一台机器：把另一份 export 并进来，只做加法，重复的跳过
+# 5) 旧值堆太多了：先预演要归档几条（dryRun 不写盘，一个字节都不动）
+curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/conflicts/prune' \
+  -H 'content-type: application/json' -d '{"keep":1,"dryRun":true}'
+# → {"ok":true,"dryRun":true,"removed":2,"groups":4,"byGroup":[{"key":"用户 → 职业","kept":1,"removed":1}]}
+
+# 5b) 确认无误再去掉 dryRun：多出来的旧值进 archive.json（reason: "superseded"），可回看不可怕
+curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/conflicts/prune' \
+  -H 'content-type: application/json' -d '{"keep":1}'
+
+# 6) 换一台机器：把另一份 export 并进来，只做加法，重复的跳过
 curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/import' \
   -H 'content-type: application/json' --data-binary @other-brain-export.json
 # → {"ok":true,"episodic":12,"semantic":4,"procedural":2,"skipped":3,"total":18}
