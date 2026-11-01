@@ -223,6 +223,11 @@ curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/conflicts/prune' \
 curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/conflicts/prune' \
   -H 'content-type: application/json' -d '{"keep":1}'
 
+# 5c) 忘掉的东西去哪了：归档区能查也能取回
+curl -s 'http://127.0.0.1:7799/deepseek-brain/api/archive?q=评审' | jq '{total, items: [.items[] | {id, layer, title, reason}]}'
+curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/archive/ep_abc123/restore'
+# → {"ok":true,"layer":"episodic","title":"季度评审改到周四上午"}  ← 它又参与检索与衰减了
+
 # 6) 换一台机器：把另一份 export 并进来，只做加法，重复的跳过
 curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/import' \
   -H 'content-type: application/json' --data-binary @other-brain-export.json

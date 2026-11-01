@@ -195,6 +195,26 @@ PATCH /api/memories/ep_abc
                 "removable": 1 } ] }
 ```
 
+`GET /api/archive?q=&layer=&limit=` — 归档区：`archive.json` 里的条目与「状态为 archived 的语义事实」合并视图。
+
+```jsonc
+{ "ok": true, "total": 2,
+  "byLayer": { "episodic": 1, "semantic": 0, "procedural": 1 },
+  "items": [ { "id": "ep_...", "layer": "episodic", "title": "季度评审改到周四上午",
+               "body": "", "importance": 3, "ts": "…", "archivedAt": "…",
+               "reason": "manual", "source": "archive.json", "score": 0 } ] }
+```
+
+`reason` 三态：`manual`（手动归档 / 遗忘）、`superseded`（被新说法取代后清理）、`decay`（衰减扫除）。
+
+`POST /api/archive/:id/restore` — 取回一条。情景与程序回到各自层；
+语义事实若槽位已有生效值，会回到「已修正」的位置（`supersededBy` 指向当前生效值），不会抢走生效位。
+
+```jsonc
+// → { "ok": true, "layer": "episodic", "item": { … }, "title": "季度评审改到周四上午" }
+// 找不到 → 404 { "ok": false, "error": { "code": "not-found" } }
+```
+
 `POST /api/import` — 把另一台设备导出的档案（`/api/export.json` 的同一形状）并进来；只做加法，
 同 id / 同三元组 / 同规则 / 同事件原文的一律跳过，不覆盖本地。
 

@@ -159,6 +159,7 @@ dsh plugin add ./deepseek-brain
 | `brain_conflicts` | 列出被修正的事实与当前生效值 | — |
 | `brain_restore` | 把某条 `[已修正]` 的旧值放回生效位 | `id`(必填) |
 | `brain_prune_conflicts` | 每个槽位只留最近 N 条旧值，其余软归档到 `archive.json`（先给预演） | `keep` `subject` `relation` `dryRun` |
+| `brain_archive` | 查归档区（遗忘 / 清理 / 手动归档）并取回其中一条 | `query` `layer` `limit` `id` |
 | `brain_import` | 并入另一份 export（只做加法，冲突跳过） | `path` 或 `json` |
 | `brain_forget` | 软删除到 `archive.json` | `id` |
 | `brain_sleep` | 衰减清理 + 睡眠巩固 | `minAgeHours` |
@@ -268,7 +269,7 @@ ASCII 脑图（见第 3 节）+ 健康面板：总记忆数、本周新增、遗
 `brain_dashboard` → 返回 `…/deepseek-brain/dashboard.html`。它不是「数据看板」，是一台**观测仪**：骨白与墨色、宋体标题、等宽数字、压印按钮，没有任何圆角渐变卡片。四页（hash 路由，键盘 `1–4`）：
 
 - **概览 VITALS**：脑区度数表（五层的条数/占比/平均强度）+ 14 天生命体征示波器（新增/遗忘/巩固/巩固次数四条迹线）+ 读数板（λ、半衰期、遗忘阈值、Pinned 条数、数据目录、备份数、向量索引、当前会话）+ 检索台（真正 `POST /api/recall`，把分数四分量列出来）。
-- **编年史 CHRONICLE**：等宽表格虚拟滚动，每条给出「强度预报」——`还剩 31.2 日 · 强度 0.50` 或 `免疫 · Imp 5`，直接读服务端 `forgetInDays`，不在前端重算公式。点任意一行打开**版本链抽屉**：`v1 … vN` 分开标注当前版与 `[已修正]`，点开看那一版当时的字段；`恢复此版本` 对情景/程序走 `PATCH api/memories/:id`（历史另存一版，不覆盖），对语义事实走 `POST api/conflicts/:id/restore`。
+- **编年史 CHRONICLE**：右上角「归档区」按钮打开归档抽屉——遗忘、清理、手动归档的记忆都在里面，可按关键词与层级筛，点「取回」就回到原来的层继续参与检索与衰减。等宽表格虚拟滚动，每条给出「强度预报」——`还剩 31.2 日 · 强度 0.50` 或 `免疫 · Imp 5`，直接读服务端 `forgetInDays`，不在前端重算公式。点任意一行打开**版本链抽屉**：`v1 … vN` 分开标注当前版与 `[已修正]`，点开看那一版当时的字段；`恢复此版本` 对情景/程序走 `PATCH api/memories/:id`（历史另存一版，不覆盖），对语义事实走 `POST api/conflicts/:id/restore`。
 - **纤维追踪 TRACTOGRAPHY**：力导向的语义纤维束，主体/客体分级着色，`[已修正]` 用虚线束；右侧实体档案按度数排序，点实体列出它的全部事实；再下方是**废弃事实面板**——按「主体 → 关系」聚合被修正的旧值，每个槽位保留最近 1 条，多出来的点一下就软归档到 `archive.json`（可先看「可归档 K 条」再动手）。
 - **衰减实验 DECAY LAB**：左侧时间转盘（±30 天）真的会 `GET /api/state?at=`，右侧强度曲线族按当前 λ 画出每条记忆的衰减轨迹与阈值穿越点，右下是遗忘预报清单（按 `forgetInDays` 升序）。
 
@@ -279,12 +280,14 @@ API 挂在 `/deepseek-brain/api/*`，契约见 [`docs/API.md`](docs/API.md)：
 ```
 GET  /api/state?at=   GET /api/activity?since=   GET /api/health
 GET  /api/export.json GET /api/snapshot.md       GET /api/conflicts
+GET  /api/archive?q=&layer=&limit=                GET /api/memories/:id
 POST /api/remember    POST /api/forget   POST /api/sleep   POST /api/decay
 POST /api/recall      POST /api/working/push
 PATCH|POST /api/memories/:id            # 就地修订（importance / 字段 / 语义 object）
 GET  /api/memories/:id                 # 版本链 v1…当前
 POST /api/conflicts/:id/restore         # 把 [已修正] 的旧值放回生效位
 POST /api/conflicts/prune               # 每槽留 N 条旧值，其余软归档（keep / dryRun）
+POST /api/archive/:id/restore           # 从归档区取回，回到原来的层
 POST /api/import                        # 并入另一份 export，只做加法
 ```
 
@@ -299,6 +302,8 @@ POST /api/import                        # 并入另一份 export，只做加法
 ![编年史 · 版本链抽屉](docs/screenshots/dash-revisions.png)
 
 ![纤维追踪 · 废弃事实面板](docs/screenshots/dash-deprecated.png)
+
+![编年史 · 归档区抽屉](docs/screenshots/dash-archive.png)
 
 | 衰减实验 | 手机（390 px） |
 | --- | --- |
@@ -412,7 +417,7 @@ DEEPSEEK_BRAIN_DIR=/tmp/brain node tools/demo.mjs   # 用临时数据目录，�
 | `test/memory.test.js` | 落盘/重启后记忆存活、观察闸门、recall、软删除、衰减清理、睡眠巩固、`apiState` 契约、演示数据、prompt 块、配置夹取 |
 | `test/activity.test.js` | 活动流：seq 单调、payload 不能伪造 `seq/kind`、未知 kind 回退、环形缓冲上限、`since()` 只返回增量 |
 | `test/server.test.js` | 全端点、CORS/预检、静态资源、路径穿越拒绝、坏 JSON 结构化报错、`salience` 派生、时间旅行、`forgetInDays` 预报、`POST /api/recall` |
-| `test/plugin.test.js` | cordis 契约、13 个工具 schema 只使用 DSH 支持的 JSON Schema 子集、端到端工具调用、`session/event` 捕获、prompt 注入 |
+| `test/plugin.test.js` | cordis 契约、14 个工具 schema 只使用 DSH 支持的 JSON Schema 子集、端到端工具调用、`session/event` 捕获、prompt 注入 |
 | `test/frontend.test.js` | 两个页面无远程依赖、内联脚本可编译、3D 页引用 vendor + `api/state` + 五层名称、`dist` 单文件把 three.js 内联且无外链 |
 
 调试入口：
@@ -448,7 +453,7 @@ deepseek-brain/
 ├── cordis.patch.yml          # DSH bundle 插入声明
 ├── package.json              # main: lib/index.js, dsh.bundle.patch
 ├── lib/
-│   ├── index.js              # 插件入口：13 个工具 + prompt 注入 + 事件捕获 + Web 挂载 + 自主遗忘定时器
+│   ├── index.js              # 插件入口：14 个工具 + prompt 注入 + 事件捕获 + Web 挂载 + 自主遗忘定时器
 │   ├── memory.js             # MemorySystem：五层编排、配置、状态、prompt 块、演示数据、遗忘预报
 │   ├── store.js              # 原子写、备份轮转、损坏恢复
 │   ├── sensory.js            # 感觉缓冲 + 实体抽取 + 注意闸门

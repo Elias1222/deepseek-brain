@@ -339,3 +339,58 @@ test('pruneConflicts archives stale versions but keeps the newest one per slot',
   const again = memory.pruneConflicts({ keep: 1 });
   assert.equal(again.removed, 0, 'second pass is a no-op');
 });
+
+test('the archive is searchable and a forgotten memory can come back', async () => {
+  const memory = await makeMemory().init();
+
+  const kept = memory.remember({ layer: 'episodic', event: '和张伟在望京开会', participants: ['张伟'], place: '望京', importance: 4 }).item;
+  const dropped = memory.remember({ layer: 'episodic', event: '周末去奥森公园跑步', place: '奥森公园', importance: 2 }).item;
+  memory.remember({ layer: 'procedural', rule: '回答先给结论', importance: 4 });
+
+  memory.forget(dropped.id);
+
+  const all = memory.archiveList();
+  assert.equal(all.total, 1, 'one archived row');
+  assert.equal(all.byLayer.episodic, 1);
+  assert.equal(all.items[0].id, dropped.id);
+  assert.equal(all.items[0].reason, 'manual');
+  assert.ok(all.items[0].archivedAt, 'archive time is recorded');
+
+  const hit = memory.archiveList({ query: '奥森' });
+  assert.equal(hit.total, 1, 'keyword filter works');
+  assert.equal(memory.archiveList({ query: '不存在的词' }).total, 0);
+  assert.equal(memory.archiveList({ layer: 'semantic' }).total, 0);
+
+  const restored = memory.restoreArchived(dropped.id);
+  assert.equal(restored.layer, 'episodic');
+  assert.equal(restored.item.event, '周末去奥森公园跑步');
+  assert.equal(memory.archiveList().total, 0, 'archive row is consumed');
+  assert.ok(memory.episodic.some((it) => it.id === dropped.id), 'back in the episodic layer');
+  assert.ok(memory.episodic.some((it) => it.id === kept.id));
+  assert.ok(memory.activity.recent(3).some((e) => e.kind === 'restore'));
+  assert.equal(memory.restoreArchived('ep_missing'), null);
+
+  const recalled = memory.recall('奥森 跑步');
+  assert.ok(recalled.hits.some((h) => h.id === dropped.id), 'restored memory is searchable again');
+});
+
+test('restoring a hidden semantic fact does not steal the active slot', async () => {
+  const memory = await makeMemory().init();
+
+  const oldFact = memory.remember({ layer: 'semantic', subject: '用户', relation: '职业', object: '设计师', importance: 4 }).item;
+  memory.remember({ layer: 'semantic', subject: '用户', relation: '职业', object: '产品设计师', importance: 5 });
+  memory.forget(oldFact.id);
+
+  const hidden = memory.archiveList({ layer: 'semantic' });
+  assert.equal(hidden.total, 1, 'soft-archived fact shows in the archive view');
+  assert.equal(hidden.items[0].source, 'semantic');
+
+  const back = memory.restoreArchived(oldFact.id);
+  assert.equal(back.layer, 'semantic');
+  assert.equal(back.item.status, 'corrected', 'slot is taken, so it returns as a corrected version');
+  assert.equal(back.item.supersededBy, memory.semantic.items.find((it) => it.status === 'active').id);
+
+  const active = memory.semantic.items.filter((it) => it.status === 'active' && it.relation === '职业');
+  assert.equal(active.length, 1, 'exactly one active fact in the slot');
+  assert.equal(active[0].object, '产品设计师');
+});

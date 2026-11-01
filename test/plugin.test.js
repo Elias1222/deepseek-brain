@@ -88,6 +88,7 @@ test('apply registers seven tools with DSH-supported schemas', async () => {
       'brain_restore',
       'brain_import',
       'brain_prune_conflicts',
+      'brain_archive',
       'brain_sleep',
       'brain_snapshot',
       'brain_dashboard',

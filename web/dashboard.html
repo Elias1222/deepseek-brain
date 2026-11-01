@@ -299,6 +299,22 @@ input[type="text"]:focus{border-color:var(--celadon);background:#0d1012}
 .tip .old{color:var(--paper-3);border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
 .tip .old em{font-style:normal;color:var(--cinnabar)}
 
+/* ── archive drawer ──────────────────────────────────────────── */
+.arc-q{display:flex;gap:6px;margin:2px 0 8px}
+.arc-q input{flex:1;min-width:0;padding:6px 8px;font:11px/1.4 var(--mono);color:var(--paper);
+  background:rgba(230,224,210,.04);border:1px solid var(--line);border-radius:0}
+.arc-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.arc-chip{padding:3px 7px;font:10px/1.2 var(--mono);letter-spacing:.06em;color:var(--paper-3);
+  background:transparent;border:1px solid var(--line);border-radius:0;cursor:pointer}
+.arc-chip.on{color:var(--ink);background:var(--paper);border-color:var(--paper)}
+.arc-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:start;
+  padding:7px 2px;border-bottom:1px solid rgba(230,224,210,.06)}
+.arc-row .when{font:9px/1.5 var(--mono);color:var(--paper-4);white-space:nowrap}
+.arc-row .what b{display:block;font-size:11px;font-weight:500;color:var(--paper);line-height:1.45}
+.arc-row .what i{font-style:normal;font:9px/1.5 var(--mono);color:var(--paper-4)}
+.arc-row .btn{flex:none;padding:3px 7px;font-size:9px}
+.arc-empty{padding:10px 2px;font:10px/1.7 var(--mono);color:var(--paper-4)}
+
 /* ── deprecated facts ────────────────────────────────────────── */
 .depr{flex:0 0 auto;max-height:42%;display:flex;flex-direction:column;min-height:132px;
   border-top:1px solid var(--line);margin-top:2px}
@@ -623,6 +639,7 @@ input[type="text"]:focus{border-color:var(--celadon);background:#0d1012}
         <div class="f-group"><span class="f-label">区间</span><input type="text" class="f-date" id="tlFrom" placeholder="起 YYYY-MM-DD" aria-label="起始日期"><span class="f-dash">—</span><input type="text" class="f-date" id="tlTo" placeholder="止 YYYY-MM-DD" aria-label="结束日期"></div>
         <div class="f-group"><span class="f-label">检索</span><input type="text" class="f-search" id="tlQuery" placeholder="标题 / 参与者 / 地点 / 细节" aria-label="全文检索"></div>
         <button class="btn btn-ghost" type="button" id="tlReset">重置</button>
+        <button class="btn btn-ghost" type="button" id="arcOpen">归档区</button>
         <span class="f-count" id="tlFilterCount"><b>—</b> 条命中</span>
       </div>
       <div class="tl" id="tlRoot">
@@ -632,6 +649,29 @@ input[type="text"]:focus{border-color:var(--celadon);background:#0d1012}
         <div class="tl-vp" id="tlViewport"><div class="tl-inner" id="tlInner"></div></div>
         <div class="tl-empty hide" id="tlEmpty">该筛选下没有记忆</div>
       </div>
+      <aside class="revdrawer" id="arcDrawer" hidden aria-label="归档区" aria-hidden="true">
+        <div class="rev-hd">
+          <div class="t"><b>归档区</b><i>ARCHIVE</i></div>
+          <button class="x" id="arcClose" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="rev-body">
+          <p class="rev-lede">遗忘、清理与手动归档的记忆都在这里。取回之后它重新参与检索与衰减；语义槽位已被占用时，它回到「已修正」的位置。</p>
+          <div class="arc-q">
+            <input type="text" id="arcQuery" placeholder="搜事件 / 地点 / 三元组" aria-label="归档区检索">
+            <button class="btn btn-ghost" id="arcGo" type="button">检索</button>
+          </div>
+          <div class="arc-chips" id="arcChips">
+            <button class="arc-chip on" data-layer="" type="button">全部</button>
+            <button class="arc-chip" data-layer="episodic" type="button">情景</button>
+            <button class="arc-chip" data-layer="semantic" type="button">语义</button>
+            <button class="arc-chip" data-layer="procedural" type="button">程序</button>
+          </div>
+          <div id="arcList"><p class="arc-empty">读取中…</p></div>
+        </div>
+        <div class="rev-foot">
+          <span class="rev-st" id="arcSt">—</span>
+        </div>
+      </aside>
       <aside class="revdrawer" id="revDrawer" hidden aria-label="记忆修订史" aria-hidden="true">
     <div class="rev-hd">
       <div class="t"><b id="revTitle">—</b><i id="revMeta">REVISIONS</i></div>
@@ -3117,6 +3157,121 @@ function revOpen(id, layer, title){
   });
 }
 
+/* ── archive drawer ─────────────────────────────────────────── */
+var ARC = { q: '', layer: '', items: [], total: 0, busy: false };
+
+function arcIsDemo(){ return !!(S && S.mode === 'demo'); }
+
+function arcOpen(){
+  wireArchive();
+  var d = $('arcDrawer');
+  d.hidden = false;
+  requestAnimationFrame(function(){ d.classList.add('on'); });
+  arcLoad();
+}
+
+function arcClose(){
+  var d = $('arcDrawer');
+  d.classList.remove('on');
+  setTimeout(function(){ if(!d.classList.contains('on')) d.hidden = true; }, 240);
+}
+
+function arcSetStatus(text, kind){
+  var el = $('arcSt');
+  if(!el) return;
+  el.className = 'rev-st' + (kind ? ' ' + kind : '');
+  el.textContent = text;
+}
+
+function arcRowsHtml(items){
+  return items.map(function(it){
+    var when = it.archivedAt ? String(it.archivedAt).slice(5, 16).replace('T', ' ') : '—';
+    var reason = it.reason === 'superseded' ? '被新说法取代' : it.reason === 'decay' ? '衰减遗忘' : '手动归档';
+    return '<div class="arc-row">' +
+      '<span class="when">' + esc(when) + '</span>' +
+      '<span class="what"><b>' + esc(trunc(it.title, 64)) + '</b><i>' + esc(layerLabel(it.layer)) + ' · ' + esc(reason) + ' · ' + esc(it.id) + '</i></span>' +
+      '<button class="btn btn-ghost" type="button" data-arc="' + esc(it.id) + '">取回</button>' +
+      '</div>';
+  }).join('');
+}
+
+function arcLoad(){
+  var body = $('arcList');
+  if(!body) return;
+  if(arcIsDemo()){
+    body.innerHTML = '<p class="arc-empty">离线演示里没有归档区：归档写在宿主服务的 archive.json 里。</p>';
+    arcSetStatus('离线演示 · 只读', '');
+    return;
+  }
+  arcSetStatus('读取归档区…', '');
+  var qs = 'api/archive?limit=60';
+  if(ARC.q) qs += '&q=' + encodeURIComponent(ARC.q);
+  if(ARC.layer) qs += '&layer=' + ARC.layer;
+  api(qs).then(function(data){
+    ARC.items = data.items || [];
+    ARC.total = data.total || 0;
+    body.innerHTML = ARC.total
+      ? arcRowsHtml(ARC.items)
+      : '<p class="arc-empty">归档区是空的：没有遗忘、没有清理，也没有被手动归档的记忆。</p>';
+    arcSetStatus('共 ' + ARC.total + ' 条 · 情景 ' + data.byLayer.episodic +
+      ' / 语义 ' + data.byLayer.semantic + ' / 程序 ' + data.byLayer.procedural, '');
+  }).catch(function(err){
+    body.innerHTML = '<p class="arc-empty">读取失败：' + esc(err && err.message ? err.message : 'unknown') + '</p>';
+    arcSetStatus('读取失败', 'bad');
+  });
+}
+
+function arcRestore(id){
+  if(ARC.busy) return;
+  ARC.busy = true;
+  arcSetStatus('取回中…', '');
+  api('api/archive/' + encodeURIComponent(id) + '/restore', { method: 'POST' }).then(function(res){
+    ARC.busy = false;
+    arcSetStatus('已取回 → ' + layerLabel(res.layer) + ' · ' + trunc(res.title || id, 40), 'ok');
+    arcLoad();
+    if(typeof refreshState === 'function') refreshState();
+    if(typeof renderDeprecated === 'function') renderDeprecated();
+  }).catch(function(err){
+    ARC.busy = false;
+    arcSetStatus('取回失败 · ' + (err && err.message ? err.message : 'unknown'), 'bad');
+  });
+}
+
+function wireArchive(){
+  if(window.__arcWired) return;
+  window.__arcWired = true;
+
+  $('arcOpen').addEventListener('click', arcOpen);
+  $('arcClose').addEventListener('click', arcClose);
+
+  $('arcGo').addEventListener('click', function(){
+    ARC.q = $('arcQuery').value.trim();
+    arcLoad();
+  });
+  $('arcQuery').addEventListener('keydown', function(ev){
+    if(ev.key === 'Enter'){ ARC.q = $('arcQuery').value.trim(); arcLoad(); }
+  });
+
+  $('arcChips').addEventListener('click', function(ev){
+    var b = ev.target.closest('[data-layer]');
+    if(!b) return;
+    ARC.layer = b.getAttribute('data-layer') || '';
+    Array.prototype.forEach.call($('arcChips').querySelectorAll('.arc-chip'), function(x){
+      x.classList.toggle('on', x === b);
+    });
+    arcLoad();
+  });
+
+  $('arcList').addEventListener('click', function(ev){
+    var b = ev.target.closest('[data-arc]');
+    if(b) arcRestore(b.getAttribute('data-arc'));
+  });
+
+  document.addEventListener('keydown', function(ev){
+    if(ev.key === 'Escape' && !$('arcDrawer').hidden) arcClose();
+  });
+}
+
 function revClose(){
   var d = $('revDrawer');
   d.classList.remove('on');
@@ -3224,6 +3379,7 @@ function hashView(){
 }
 
 function bindNav(){
+  wireArchive();
   Array.prototype.forEach.call(document.querySelectorAll('.dial-btn, #mnav button, .brand'), function(b){
     if(b.hasAttribute('data-view')){
       b.addEventListener('click', function(){
