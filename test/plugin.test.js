@@ -91,7 +91,8 @@ test('apply registers seven tools with DSH-supported schemas', async () => {
       'brain_archive',
       'brain_sleep',
       'brain_snapshot',
-      'brain_dashboard',
+      'brain_reset',
+    'brain_dashboard',
     ];
     assert.deepEqual([...fake.tools.keys()].sort(), [...expected].sort());
     for (const definition of fake.tools.values()) {

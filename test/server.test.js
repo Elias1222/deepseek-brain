@@ -37,6 +37,13 @@ async function get(origin, route, init) {
   }
   return { status: res.status, headers: res.headers, text, json };
 }
+async function post(origin, route, body) {
+  return get(origin, route, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+}
 
 test('GET /api/state returns the front-end contract', async () => {
   await withServer(async ({ origin }) => {
@@ -451,6 +458,22 @@ test('a read-only instance refuses writes with 503 instead of pretending', async
     memory.readOnly = false;
   });
 });
+
+test('POST /api/reset needs an explicit confirm and then empties the brain', async () => {
+  await withServer(async ({ origin, memory }) => {
+    memory.remember({ layer: 'episodic', event: '重置之前的一条', importance: 3 });
+    const refused = await post(origin, '/api/reset', {});
+    assert.equal(refused.status, 400);
+    assert.equal(refused.json.error.code, 'missing-confirm');
+    assert.ok(JSON.parse(fs.readFileSync(path.join(memory.config.dataDir, 'episodic.json'), 'utf8')).items.length > 0, 'the write landed before the reset');
+
+    const done = await post(origin, '/api/reset', { confirm: 'reset' });
+    assert.equal(done.status, 200);
+    assert.ok(done.json.cleared.episodic >= 1);
+    assert.equal(memory.episodic.length, 0);
+  });
+});
+
 
 test('state carries the read-only flag so the UI can say it up front', async () => {
   await withServer(async ({ origin, memory }) => {

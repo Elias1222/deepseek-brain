@@ -250,6 +250,21 @@ curl -s -X POST 'http://127.0.0.1:7799/deepseek-brain/api/import' \
 
 ---
 
+## 示例六：从空白开始（清空整座大脑）
+
+```bash
+# 1) 先看清将失去什么
+curl -s localhost:7801/deepseek-brain/api/state | jq ".stats"
+
+# 2) 清空（必须带 confirm）
+curl -sX POST localhost:7801/deepseek-brain/api/reset -H 'content-type: application/json' -d '{"confirm":"reset"}'
+
+# 3) 确认是空的
+curl -s localhost:7801/deepseek-brain/api/state | jq "{total:.stats.total, ep:(.episodic|length), seq:.activitySeq}"
+```
+
+插件里就是一句 `brain_reset { "confirm": "reset" }`；观测仪控制台也有「清空大脑」按钮——两步确认，3.2 s 内不点第二次就自动收回，清完在控制台留下 `已清空 · 情景 N / 语义 N / 程序 N / 归档 N · 新世代 xxxx`。
+
 ## 一次完整的 20 天剧本
 
 `node tools/demo.mjs --fresh` 之后跑下面这段，能看到「记住 → 衰减 → 巩固 → 遗忘」的完整闭环：

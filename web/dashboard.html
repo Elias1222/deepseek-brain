@@ -793,6 +793,7 @@ input[type="text"]:focus{border-color:var(--celadon);background:#0d1012}
         <button class="btn btn-ghost" type="button" id="btnJson">导出 JSON</button>
         <button class="btn btn-ghost" type="button" id="btnMd">导出 Markdown</button>
         <button class="btn btn-ghost" type="button" id="btnRefresh">重取状态</button>
+        <button class="btn btn-ghost" type="button" id="btnReset">清空大脑</button>
       </div>
       <div class="dock-note" id="dockNote">服务端 <b>api/state</b> · 活动流 <b>api/activity</b> · 每 8 秒重取状态、每 1 秒扫描事件。导出为真实接口；离线时以本地样本生成并标注。</div>
     </div>
@@ -866,7 +867,7 @@ var LAYER = {
   semantic:  { cn:'语义记忆', short:'语义', en:'SEMANTIC',  c:'#87a44f', region:'语义区' },
   procedural:{ cn:'程序记忆', short:'程序', en:'PROCEDURAL',c:'#c07a45', region:'程序区' }
 };
-var KIND = { observe:'观察', recall:'检索', remember:'写入', correct:'修正', forget:'归档', consolidate:'巩固', decay:'衰减', edit:'修订', import:'合并', prune:'清理', travel:'切片', sleep:'睡眠' };
+var KIND = { observe:'观察', recall:'检索', remember:'写入', correct:'修正', forget:'归档', consolidate:'巩固', decay:'衰减', edit:'修订', import:'合并', prune:'清理', travel:'切片', sleep:'睡眠', restore:'取回', archive:'归档', reset:'清空' };
 var VIEWS = ['vitals','chronicle','tractography','decay'];
 var ROW_H = 44, OVERSCAN = 7;
 var POLL_STATE = 8000, POLL_ACT = 1000;
@@ -1308,6 +1309,13 @@ function eventText(ev){
   if(t === 'consolidate') return '巩固 · 迁移 ' + (ev.migrated || 0) + ' / 压缩 ' + (ev.compressed || 0) + ' / 剪枝 ' + (ev.pruned || 0);
   if(t === 'decay') return '衰减 · ' + (ev.count || 0) + ' 条';
   if(t === 'prune') return '废弃版本 ' + (ev.count || 0) + ' 条 · 每槽留 ' + (ev.keep || 1);
+  if(t === 'reset') {
+    var c = ev.cleared || {};
+    return '清空 · 情景 ' + (c.episodic||0) + ' / 语义 ' + (c.semantic||0) + ' / 程序 ' + (c.procedural||0) +
+      ' / 归档 ' + (c.archive||0);
+  }
+  if(t === 'restore') return '取回 ' + trunc(ev.title || ev.id || '', 24);
+  if(t === 'archive') return (ev.undo ? '撤销取回 · ' : '归档 · ') + trunc(ev.title || ev.id || '', 24);
   if(t === 'observe') return '观察 · ' + trunc(ev.text || ev.topic || '', 24) + (ev.kept ? ' → ' + layerLabel(ev.kept.layer) : '');
   return t || '事件';
 }
@@ -3573,6 +3581,35 @@ function bindConsole(){
     });
   });
 
+
+  /* 清空大脑：两步确认（和归档一样，不做 window.confirm），只打 api/reset。 */
+  (function wireReset(){
+    var btn = $('btnReset');
+    if(!btn) return;
+    var armed = 0;
+    btn.addEventListener('click', function(){
+      if(S.mode === 'demo'){ $('dockNote').innerHTML = '<span class="cin">离线演示</span> · 没有宿主服务可清空。'; return; }
+      if(!armed){
+        armed = setTimeout(function(){ armed = 0; btn.textContent = '清空大脑'; btn.classList.remove('warn'); }, 3200);
+        btn.textContent = '确认清空？';
+        btn.classList.add('warn');
+        $('dockNote').innerHTML = '<span class="cin">危险操作</span> · 再点一次会清空五层记忆、归档与活动流（记忆文件会重写成空结构）。';
+        return;
+      }
+      clearTimeout(armed); armed = 0;
+      btn.textContent = '清空中…';
+      api('api/reset', { method: 'POST', body: { confirm: 'reset' } }).then(function(res){
+        btn.textContent = '清空大脑'; btn.classList.remove('warn');
+        var c = res.cleared || {};
+        $('dockNote').innerHTML = '已清空 · 情景 ' + (c.episodic||0) + ' · 语义 ' + (c.semantic||0) +
+          ' · 程序 ' + (c.procedural||0) + ' · 归档 ' + (c.archive||0) + ' · 新世代 <b>' + esc((res.boot&&res.boot.id)||'?') + '</b>';
+        return refreshState(true).then(function(){ pollActivity(); renderAll(); });
+      }).catch(function(e){
+        btn.textContent = '清空大脑'; btn.classList.remove('warn');
+        $('dockNote').innerHTML = '<span class="cin">清空失败</span> · ' + esc(e.message || '接口错误');
+      });
+    });
+  })();
   $('btnRefresh').addEventListener('click', function(){
     if(S.mode === 'demo'){ $('dockNote').innerHTML = '<span class="cin">离线演示</span> · 无宿主服务可重取。'; return; }
     $('dockNote').textContent = '重取状态 · 请求中…';

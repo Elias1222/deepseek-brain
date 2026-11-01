@@ -276,6 +276,24 @@ PATCH /api/memories/ep_abc
 `POST /api/decay` → `{ "ok": true, "forgotten": 3, "ids": ["ep_..."] }`
 `POST /api/working/push` — `{ "title": "话题" }` → `{ "ok": true, "stack": [{ "id": "wk_...", "title": "…", "ts": "…" }] }`
 
+### `POST /api/reset`
+
+把这座大脑清空成空白：五层记忆、归档、活动流、统计计数器一起归零，并记一条 `reset` 事件。
+
+```bash
+curl -sX POST localhost:7801/deepseek-brain/api/reset \
+  -H 'content-type: application/json' -d '{"confirm":"reset"}'
+```
+
+```json
+{ "ok": true,
+  "cleared": { "episodic": 12, "semantic": 4, "procedural": 2, "archive": 0, "activity": 0 },
+  "boot": { "id": "rbnsof", "count": 1, "since": "2026-11-01T12:22:09.000Z", "previous": null } }
+```
+
+- 必须带 `confirm: "reset"`，否则 `400 missing-confirm`；只读实例一律 `503 read-only`。
+- 清空后仍然落盘（写出空结构），所以不会留下「删了但没删干净」的错觉；世代计数从 1 重新开始。
+
 ## 5. Debug / transfer
 
 ### GET /api/events?since=
