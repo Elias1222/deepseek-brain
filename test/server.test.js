@@ -452,6 +452,23 @@ test('a read-only instance refuses writes with 503 instead of pretending', async
   });
 });
 
+test('state carries the read-only flag so the UI can say it up front', async () => {
+  await withServer(async ({ origin, memory }) => {
+    const writable = await get(origin, '/api/state');
+    assert.equal(writable.status, 200);
+    assert.equal(writable.json.readOnly, false);
+    assert.equal(writable.json.lock.held, true);
+
+    memory.readOnly = true;
+    memory.lock = { ok: false, holder: { pid: 4242, at: Date.now() } };
+    const readOnly = await get(origin, '/api/state');
+    assert.equal(readOnly.status, 200);
+    assert.equal(readOnly.json.readOnly, true);
+    assert.equal(readOnly.json.lock.pid, 4242);
+    memory.readOnly = false;
+  });
+});
+
 test('the activity endpoint reports a stable process generation', async () => {
   await withServer(async ({ origin }) => {
     const first = await get(origin, '/api/activity?since=0&limit=5');

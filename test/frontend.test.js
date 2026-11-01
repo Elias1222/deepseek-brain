@@ -82,3 +82,11 @@ test('single-file 3D build inlines three.js and needs no vendor file', (t) => {
   assert.ok(html.length > 700_000, 'bundle contains the three.js payload');
   assert.ok(html.includes('api/state'), 'still talks to the live API when served');
 });
+test('the brain instrument shows a persistent read-only ribbon', () => {
+  const html = read('web/brain-3d.html');
+  assert.match(html, /id="roBar"/, 'the ribbon element exists');
+  assert.match(html, /data dir|数据目录/, 'the ribbon talks about the data dir');
+  assert.match(html, /setReadOnly/, 'the state handler toggles it');
+});
+
+

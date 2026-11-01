@@ -52,6 +52,12 @@
   .conn.ok i{background:var(--cel)}
   .conn.warn{color:var(--cin);border-color:var(--cin-dim)}
   .conn.warn i{background:var(--cin)}
+  /* 只读横幅：另一个实例握着数据目录时一直亮着 */
+  .robar{font-size:9px;letter-spacing:.08em;color:var(--cin);border:1px solid var(--cin-dim);
+    padding:3px 7px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+  .robar[hidden]{display:none}
+  .robar::before{content:"";width:5px;height:5px;background:var(--cin);display:block}
+  @media (max-width:720px){.robar{display:none}}
   /* ---------- anatomy board ---------- */
   .board{grid-column:1;grid-row:2;border-right:1px solid var(--line);overflow:auto;
     padding:12px 12px 18px;min-height:0}
@@ -377,6 +383,7 @@
       <div class="read opt"><i>检索</i><b id="readRecall">—</b></div>
     </div>
     <div class="conns">
+      <span class="robar" id="roBar" hidden></span>
       <span class="conn" id="connPill"><i></i><span id="connText">连接中</span></span>
     </div>
   </header>
@@ -2532,8 +2539,24 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
   /* 调试钩子：手动触发一次「从活动流重建检索史」 */
   window.__reloadHistory = function () { return loadHistoryFromActivity(); };
 
+  /* 只读态常驻显示：数据目录被另一个进程占着时顶栏一直亮着，
+     而不是等用户动手改记忆才弹一次提示 */
+  function setReadOnly(on, lock) {
+    APP.readOnly = !!on;
+    var el = document.getElementById('roBar');
+    if (!el) return;
+    if (!on) { el.hidden = true; el.textContent = ''; return; }
+    var pid = lock && lock.pid ? lock.pid : '?';
+    el.hidden = false;
+    el.textContent = '只读 · 数据目录被 pid ' + pid + ' 占用';
+    el.title = '另一个实例正在写这个数据目录；本实例只读，等它退出后会自动接管';
+  }
+
+  window.__readOnly = function () { return !!APP.readOnly; };
+
   function setConn(live) {
     APP.live = !!live;
+    if (!live) setReadOnly(false, null);
     var pill = $('connPill');
     pill.classList.toggle('ok', !!live);
     pill.classList.toggle('warn', !live);
@@ -3024,6 +3047,7 @@ globalThis.THREE=Object.freeze({ACESFilmicToneMapping:nt,AddEquation:M,AddOperat
       APP.forgetThreshold = num(raw.forgetThreshold, APP.forgetThreshold);
       APP.pinnedImportance = num(raw.pinnedImportance, APP.pinnedImportance);
       APP.seq = num(raw.activitySeq, APP.seq);
+      setReadOnly(!!raw.readOnly, raw.lock);
       setConn(true);
       stopDemoStream();
       APP.demoRaw = null;
