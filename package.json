@@ -1,6 +1,6 @@
 {
   "name": "deepseek-brain",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "private": false,
   "description": "A persistent, inspectable, human-like brain for DeepSeek Harness: five-layer memory (sensory, working, episodic, semantic, procedural) with decay, consolidation, retrieval and visualization.",
   "type": "module",
