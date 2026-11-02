@@ -1378,10 +1378,8 @@ window.__BRAIN_MESH_LOW = {
   window.__contrast = function () { return CONTRAST.gain; };
   /* 面板滑杆：塞进左栏底部；拖动只更新数字，300 ms 后才真正重解码，避免狂解码 */
   (function ensureContrastSlider() {
-    var narrow = window.innerWidth < 820;
-    var host = narrow
-      ? (document.querySelector(".dock") || document.body)
-      : (document.querySelector(".board") || document.body);
+    /* 窄屏左栏是抽屉：滑杆跟着面板一起上拉展开，不挤占底栏按钮 */
+    var host = document.querySelector(".board") || document.body;
     var box = document.createElement("div");
     box.style.cssText = "width:calc(100% - 24px);margin:8px 12px 16px;padding:8px 0 0;border-top:1px solid #23241f;display:flex;align-items:center;gap:6px;box-sizing:border-box;font:9px/1.4 ui-monospace,monospace;color:#7c7a70;letter-spacing:.06em";
     var lab = document.createElement("span");
