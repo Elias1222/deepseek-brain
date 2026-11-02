@@ -1,4 +1,4 @@
-# deepseek-brain
+﻿# deepseek-brain
 
 一个给 DeepSeek Harness 用的**持久化类人生物大脑**插件：五层记忆、指数衰减遗忘、睡眠式巩固、知识图谱冲突修正、ASCII 脑图、Web 仪表盘，以及一个单文件的 Three.js 3D 记忆大脑。
 
@@ -12,7 +12,7 @@
 
 ```bash
 # 从 GitHub 安装（把 xxx 换成实际仓库地址）
-dsh plugin --profile web add github:xxx/deepseek-brain
+dsh plugin --profile web add github:Elias1222/deepseek-brain
 
 # 本地开发时用路径安装
 dsh plugin add ./deepseek-brain
