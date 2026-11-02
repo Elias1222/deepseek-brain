@@ -1,5 +1,8 @@
 ﻿# deepseek-brain
 
+> **DeepSeek Harness (DSH) 插件** · 五层记忆大脑 + 3D 记忆观测仪
+> 安装：`dsh plugin --profile web add github:Elias1222/deepseek-brain`
+
 一个给 DeepSeek Harness 用的**持久化类人生物大脑**插件：五层记忆、指数衰减遗忘、睡眠式巩固、知识图谱冲突修正、ASCII 脑图、Web 仪表盘，以及一个单文件的 Three.js 3D 记忆大脑。
 
 零运行时依赖（纯 Node ESM），数据是 `~/.deepseek-brain/` 下的分层 JSON，随时可以打包搬走。
